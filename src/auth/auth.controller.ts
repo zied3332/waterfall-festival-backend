@@ -5,24 +5,16 @@ import {
   HttpCode,
   HttpStatus,
   Post,
-  Req,
   UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
 
+import {
+  CurrentUser,
+  type CurrentUserPayload,
+} from './decorators/current-user.decorator.js';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
-
-type JwtPayload = {
-  sub: number;
-  email: string;
-  role: string;
-};
-
-type AuthenticatedRequest = Request & {
-  user: JwtPayload;
-};
 
 @Controller('auth')
 export class AuthController {
@@ -36,7 +28,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  getProfile(@Req() request: AuthenticatedRequest) {
-    return this.authService.getProfile(request.user.sub);
+  getProfile(@CurrentUser() user: CurrentUserPayload) {
+    return this.authService.getProfile(user.sub);
   }
 }
