@@ -31,6 +31,23 @@ export class UsersService {
     });
   }
 
+  createAdmin(data: {
+    email: string;
+    passwordHash: string;
+    firstName?: string;
+    lastName?: string;
+  }) {
+    return this.prisma.user.create({
+      data: {
+        email: data.email.trim().toLowerCase(),
+        passwordHash: data.passwordHash,
+        firstName: data.firstName?.trim(),
+        lastName: data.lastName?.trim(),
+        role: 'ADMIN',
+      },
+    });
+  }
+
   updateLastLogin(id: number) {
     return this.prisma.user.update({
       where: { id },

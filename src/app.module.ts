@@ -7,7 +7,7 @@ import { EventsModule } from './events/events.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { ContactModule } from './contact/contact.module.js';
 import { UsersModule } from './users/users.module.js';
-import { AuthModule } from './auth/auth.module';
+import { AuthModule } from './auth/auth.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
