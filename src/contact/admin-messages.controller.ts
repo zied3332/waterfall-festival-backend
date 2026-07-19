@@ -17,8 +17,10 @@ import { ContactService } from './contact.service.js';
 import { UpdateMessageStatusDto } from './dto/update-message-status.dto.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { UserRole } from '../generated/prisma/enums.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+
 @Roles(UserRole.ADMIN)
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('admin/messages')
 export class AdminMessagesController {
   constructor(private readonly contactService: ContactService) {}

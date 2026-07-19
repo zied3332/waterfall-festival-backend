@@ -6,14 +6,12 @@ import { UsersModule } from '../users/users.module.js';
 import { AuthController } from './auth.controller.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { AuthService } from './auth.service.js';
-
+import { RolesGuard } from './guards/roles.guard.js';
 @Module({
   imports: [
     UsersModule,
-
     JwtModule.registerAsync({
       inject: [ConfigService],
-
       useFactory: (configService: ConfigService) => {
         const secret = configService.get<string>('JWT_SECRET');
 
@@ -30,11 +28,8 @@ import { AuthService } from './auth.service.js';
       },
     }),
   ],
-
   controllers: [AuthController],
-
-  providers: [AuthService, JwtAuthGuard],
-
-  exports: [AuthService, JwtModule, JwtAuthGuard],
+  providers: [AuthService, JwtAuthGuard, RolesGuard],
+  exports: [AuthService, JwtModule, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}
