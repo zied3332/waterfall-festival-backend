@@ -1,12 +1,25 @@
 import { Controller, Get } from '@nestjs/common';
-import { AppService } from './app.service';
+
+import { PrismaService } from './prisma/prisma.service.js';
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  getApiInfo() {
+    return {
+      name: 'Waterfall Festival API',
+      status: 'running',
+    };
+  }
+
+  @Get('database-check')
+  async checkDatabase() {
+    await this.prisma.$queryRaw`SELECT 1`;
+
+    return {
+      database: 'connected',
+    };
   }
 }
