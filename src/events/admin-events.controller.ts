@@ -7,12 +7,16 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 
 import { CreateEventDto } from './dto/create-event.dto.js';
 import { UpdateEventDto } from './dto/update-event.dto.js';
 import { EventsService } from './events.service.js';
 
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+
+@UseGuards(JwtAuthGuard)
 @Controller('admin/events')
 export class AdminEventsController {
   constructor(private readonly eventsService: EventsService) {}

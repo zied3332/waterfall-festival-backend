@@ -8,12 +8,14 @@ import {
   ParseIntPipe,
   Patch,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { MessageStatus } from '../generated/prisma/enums.js';
 import { ContactService } from './contact.service.js';
 import { UpdateMessageStatusDto } from './dto/update-message-status.dto.js';
-
+@UseGuards(JwtAuthGuard)
 @Controller('admin/messages')
 export class AdminMessagesController {
   constructor(private readonly contactService: ContactService) {}
