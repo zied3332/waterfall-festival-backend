@@ -45,4 +45,15 @@ export class AuthService {
       },
     };
   }
+  async getProfile(userId: number) {
+    const user = await this.usersService.findById(userId);
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException(
+        'Your account is unavailable or inactive',
+      );
+    }
+
+    return user;
+  }
 }
