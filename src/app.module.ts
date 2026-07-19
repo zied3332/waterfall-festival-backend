@@ -6,7 +6,8 @@ import { AppService } from './app.service.js';
 import { EventsModule } from './events/events.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { ContactModule } from './contact/contact.module.js';
-
+import { UsersModule } from './users/users.module.js';
+import { AuthModule } from './auth/auth.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -15,6 +16,8 @@ import { ContactModule } from './contact/contact.module.js';
     PrismaModule,
     EventsModule,
     ContactModule,
+    UsersModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
