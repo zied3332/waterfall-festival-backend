@@ -67,62 +67,69 @@ export class EventsService {
       .replace(/^-+|-+$/g, '');
   }
   async update(id: number, updateEventDto: UpdateEventDto) {
-  const existingEvent = await this.prisma.event.findUnique({
-    where: { id },
-  });
-
-  if (!existingEvent) {
-    throw new NotFoundException('Event not found');
-  }
-
-  let slug = existingEvent.slug;
-
-  if (updateEventDto.title) {
-    slug = this.createSlug(updateEventDto.title);
-
-    const eventWithSameSlug = await this.prisma.event.findFirst({
-      where: {
-        slug,
-        NOT: {
-          id,
-        },
-      },
+    const existingEvent = await this.prisma.event.findUnique({
+      where: { id },
     });
 
-    if (eventWithSameSlug) {
-      throw new ConflictException(
-        'An event with a similar title already exists',
-      );
+    if (!existingEvent) {
+      throw new NotFoundException('Event not found');
     }
+
+    let slug = existingEvent.slug;
+
+    if (updateEventDto.title) {
+      slug = this.createSlug(updateEventDto.title);
+
+      const eventWithSameSlug = await this.prisma.event.findFirst({
+        where: {
+          slug,
+          NOT: {
+            id,
+          },
+        },
+      });
+
+      if (eventWithSameSlug) {
+        throw new ConflictException(
+          'An event with a similar title already exists',
+        );
+      }
+    }
+
+    return this.prisma.event.update({
+      where: { id },
+      data: {
+        ...updateEventDto,
+        slug,
+        ...(updateEventDto.date && {
+          date: new Date(updateEventDto.date),
+        }),
+      },
+    });
   }
 
-  return this.prisma.event.update({
-    where: { id },
-    data: {
-      ...updateEventDto,
-      slug,
-      ...(updateEventDto.date && {
-        date: new Date(updateEventDto.date),
-      }),
-    },
-  });
-}
+  async remove(id: number) {
+    const existingEvent = await this.prisma.event.findUnique({
+      where: { id },
+    });
 
-async remove(id: number) {
-  const existingEvent = await this.prisma.event.findUnique({
-    where: { id },
-  });
+    if (!existingEvent) {
+      throw new NotFoundException('Event not found');
+    }
 
-  if (!existingEvent) {
-    throw new NotFoundException('Event not found');
+    await this.prisma.event.delete({
+      where: { id },
+    });
+
+    return {
+      message: 'Event deleted successfully',
+    };
   }
-
-  await this.prisma.event.delete({
-    where: { id },
-  });
-
-  return {
-    message: 'Event deleted successfully',
-  };
-}
+  findAllForAdmin() {
+    return this.prisma.event.findMany({
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
 }
