@@ -15,8 +15,10 @@ import { UpdateEventDto } from './dto/update-event.dto.js';
 import { EventsService } from './events.service.js';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { UserRole } from '../generated/prisma/enums.js';
 @UseGuards(JwtAuthGuard)
+@Roles(UserRole.ADMIN)
 @Controller('admin/events')
 export class AdminEventsController {
   constructor(private readonly eventsService: EventsService) {}

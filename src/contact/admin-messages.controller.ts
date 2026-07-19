@@ -15,6 +15,9 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { MessageStatus } from '../generated/prisma/enums.js';
 import { ContactService } from './contact.service.js';
 import { UpdateMessageStatusDto } from './dto/update-message-status.dto.js';
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { UserRole } from '../generated/prisma/enums.js';
+@Roles(UserRole.ADMIN)
 @UseGuards(JwtAuthGuard)
 @Controller('admin/messages')
 export class AdminMessagesController {
