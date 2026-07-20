@@ -11,17 +11,16 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
+import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { MessageStatus } from '../generated/prisma/enums.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { MessageStatus, UserRole } from '../generated/prisma/enums.js';
 import { ContactService } from './contact.service.js';
 import { UpdateMessageStatusDto } from './dto/update-message-status.dto.js';
-import { Roles } from '../auth/decorators/roles.decorator.js';
-import { UserRole } from '../generated/prisma/enums.js';
-import { RolesGuard } from '../auth/guards/roles.guard.js';
 
-@Roles(UserRole.ADMIN)
-@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('admin/messages')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.ADMIN)
 export class AdminMessagesController {
   constructor(private readonly contactService: ContactService) {}
 

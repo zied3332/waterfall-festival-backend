@@ -2,26 +2,25 @@ import {
   Body,
   Controller,
   Delete,
-  Param,
   Get,
+  Param,
   ParseIntPipe,
   Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
 
+import { Roles } from '../auth/decorators/roles.decorator.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../auth/guards/roles.guard.js';
+import { UserRole } from '../generated/prisma/enums.js';
 import { CreateEventDto } from './dto/create-event.dto.js';
 import { UpdateEventDto } from './dto/update-event.dto.js';
 import { EventsService } from './events.service.js';
 
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { Roles } from '../auth/decorators/roles.decorator.js';
-import { UserRole } from '../generated/prisma/enums.js';
-import { RolesGuard } from '../auth/guards/roles.guard.js';
-
+@Controller('admin/events')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
-@Controller('admin/events')
 export class AdminEventsController {
   constructor(private readonly eventsService: EventsService) {}
 
