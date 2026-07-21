@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { ContactModule } from './contact/contact.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { GalleryModule } from "./gallery/gallery.module.js";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -18,6 +19,7 @@ import { AuthModule } from './auth/auth.module.js';
     ContactModule,
     UsersModule,
     AuthModule,
+    GalleryModule,
   ],
   controllers: [AppController],
   providers: [AppService],
