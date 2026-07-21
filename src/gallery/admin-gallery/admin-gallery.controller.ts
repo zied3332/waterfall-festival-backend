@@ -59,4 +59,11 @@ export class AdminGalleryController {
   ) {
     return this.galleryService.remove(id);
   }
+  @Get(":id")
+findOne(
+  @Param("id", ParseIntPipe)
+  id: number,
+) {
+  return this.galleryService.findOneAdmin(id);
+}
 }

@@ -191,4 +191,28 @@ export class GalleryService {
       );
     }
   }
+  async findOneAdmin(id: number) {
+  const galleryImage = await this.prisma.galleryImage.findUnique({
+    where: {
+      id,
+    },
+    include: {
+      event: {
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+        },
+      },
+    },
+  });
+
+  if (!galleryImage) {
+    throw new NotFoundException(
+      `Gallery image with ID ${id} was not found.`,
+    );
+  }
+
+  return galleryImage;
+}
 }
