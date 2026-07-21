@@ -26,6 +26,12 @@ enum MessageStatus {
   ARCHIVED
 }
 
+enum GalleryStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 model User {
   id           Int       @id @default(autoincrement())
   email        String    @unique
@@ -57,6 +63,8 @@ model Event {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
+  galleryImages GalleryImage[]
+
   @@index([status])
   @@index([date])
   @@index([createdAt])
@@ -75,5 +83,28 @@ model ContactMessage {
 
   @@index([status])
   @@index([email])
+  @@index([createdAt])
+}
+
+model GalleryImage {
+  id          Int           @id @default(autoincrement())
+  title       String
+  description String?
+  imageUrl    String
+  altText     String?
+  status      GalleryStatus @default(DRAFT)
+  isFeatured  Boolean       @default(false)
+  sortOrder   Int           @default(0)
+
+  eventId Int?
+  event   Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([eventId])
+  @@index([isFeatured])
+  @@index([sortOrder])
   @@index([createdAt])
 }
