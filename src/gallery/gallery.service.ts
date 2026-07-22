@@ -38,7 +38,7 @@ export class GalleryService {
     });
   }
 
-  async findAllAdmin() {
+  async findAll() {
     return this.prisma.galleryImage.findMany({
       include: {
         event: {
@@ -60,41 +60,44 @@ export class GalleryService {
     });
   }
 
+  async findOne(id: number) {
+    const galleryImage =
+      await this.prisma.galleryImage.findUnique({
+        where: {
+          id,
+        },
+        include: {
+          event: {
+            select: {
+              id: true,
+              title: true,
+              slug: true,
+            },
+          },
+        },
+      });
+
+    if (!galleryImage) {
+      throw new NotFoundException(
+        `Gallery image with ID ${id} was not found.`,
+      );
+    }
+
+    return galleryImage;
+  }
+
   async create(
     createGalleryImageDto: CreateGalleryImageDto,
   ) {
     const { eventId, ...galleryData } =
       createGalleryImageDto;
 
-    if (eventId !== undefined) {
-      const event =
-        await this.prisma.event.findUnique({
-          where: {
-            id: eventId,
-          },
-          select: {
-            id: true,
-          },
-        });
-
-      if (!event) {
-        throw new NotFoundException(
-          `Event with ID ${eventId} was not found.`,
-        );
-      }
-    }
+    await this.validateEvent(eventId);
 
     return this.prisma.galleryImage.create({
       data: {
         ...galleryData,
-        event:
-          eventId !== undefined
-            ? {
-                connect: {
-                  id: eventId,
-                },
-              }
-            : undefined,
+        eventId: eventId ?? null,
       },
       include: {
         event: {
@@ -117,23 +120,7 @@ export class GalleryService {
     const { eventId, ...galleryData } =
       updateGalleryImageDto;
 
-    if (eventId !== undefined) {
-      const event =
-        await this.prisma.event.findUnique({
-          where: {
-            id: eventId,
-          },
-          select: {
-            id: true,
-          },
-        });
-
-      if (!event) {
-        throw new NotFoundException(
-          `Event with ID ${eventId} was not found.`,
-        );
-      }
-    }
+    await this.validateEvent(eventId);
 
     return this.prisma.galleryImage.update({
       where: {
@@ -141,14 +128,10 @@ export class GalleryService {
       },
       data: {
         ...galleryData,
-        event:
-          eventId !== undefined
-            ? {
-                connect: {
-                  id: eventId,
-                },
-              }
-            : undefined,
+        eventId:
+          eventId === undefined
+            ? undefined
+            : eventId,
       },
       include: {
         event: {
@@ -172,6 +155,29 @@ export class GalleryService {
     });
   }
 
+  private async validateEvent(
+    eventId?: number | null,
+  ): Promise<void> {
+    if (eventId == null) {
+      return;
+    }
+
+    const event = await this.prisma.event.findUnique({
+      where: {
+        id: eventId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!event) {
+      throw new NotFoundException(
+        `Event with ID ${eventId} was not found.`,
+      );
+    }
+  }
+
   private async ensureGalleryImageExists(
     id: number,
   ): Promise<void> {
@@ -191,49 +197,4 @@ export class GalleryService {
       );
     }
   }
-  async findOneAdmin(id: number) {
-  const galleryImage = await this.prisma.galleryImage.findUnique({
-    where: {
-      id,
-    },
-    include: {
-      event: {
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-        },
-      },
-    },
-  });
-
-  if (!galleryImage) {
-    throw new NotFoundException(
-      `Gallery image with ID ${id} was not found.`,
-    );
-  }
-
-  return galleryImage;
-}
-async findAll() {
-  return this.prisma.galleryImage.findMany({
-    include: {
-      event: {
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-        },
-      },
-    },
-    orderBy: [
-      {
-        sortOrder: "asc",
-      },
-      {
-        createdAt: "desc",
-      },
-    ],
-  });
-}
 }
