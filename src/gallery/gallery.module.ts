@@ -5,11 +5,13 @@ import { PrismaModule } from "../prisma/prisma.module.js";
 import { AdminGalleryController } from "./admin-gallery/admin-gallery.controller.js";
 import { GalleryController } from "./gallery.controller.js";
 import { GalleryService } from "./gallery.service.js";
-
+import { CloudinaryModule } from "../cloudinary/cloudinary.module.js";
 @Module({
   imports: [
     PrismaModule,
     AuthModule,
+      PrismaModule,
+    CloudinaryModule,
   ],
   controllers: [
     GalleryController,

@@ -215,4 +215,25 @@ export class GalleryService {
 
   return galleryImage;
 }
+async findAll() {
+  return this.prisma.galleryImage.findMany({
+    include: {
+      event: {
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+        },
+      },
+    },
+    orderBy: [
+      {
+        sortOrder: "asc",
+      },
+      {
+        createdAt: "desc",
+      },
+    ],
+  });
+}
 }

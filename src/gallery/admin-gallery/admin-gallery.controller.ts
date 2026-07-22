@@ -1,69 +1,81 @@
 import {
-  Body,
+  BadRequestException,
   Controller,
-  Delete,
   Get,
-  Param,
-  ParseIntPipe,
-  Patch,
   Post,
-  UseGuards,
+  UploadedFile,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { memoryStorage } from "multer";
 
-import { UserRole } from "../../generated/prisma/client.js";
-import { Roles } from "../../auth/decorators/roles.decorator.js";
-import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard.js";
-import { RolesGuard } from "../../auth/guards/roles.guard.js";
-import { CreateGalleryImageDto } from "../dto/create-gallery-image.dto.js";
-import { UpdateGalleryImageDto } from "../dto/update-gallery-image.dto.js";
+import { CloudinaryService } from "../../cloudinary/cloudinary.service.js";
 import { GalleryService } from "../gallery.service.js";
 
 @Controller("admin/gallery")
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
 export class AdminGalleryController {
   constructor(
     private readonly galleryService: GalleryService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   @Get()
   findAll() {
-    return this.galleryService.findAllAdmin();
+    return this.galleryService.findAll();
   }
 
-  @Post()
-  create(
-    @Body()
-    createGalleryImageDto: CreateGalleryImageDto,
-  ) {
-    return this.galleryService.create(
-      createGalleryImageDto,
-    );
-  }
+  @Post("test-upload")
+  @UseInterceptors(
+    FileInterceptor("image", {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 5 * 1024 * 1024,
+      },
+      fileFilter: (_request, file, callback) => {
+        const allowedTypes = [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+        ];
 
-  @Patch(":id")
-  update(
-    @Param("id", ParseIntPipe) id: number,
-    @Body()
-    updateGalleryImageDto: UpdateGalleryImageDto,
-  ) {
-    return this.galleryService.update(
-      id,
-      updateGalleryImageDto,
-    );
-  }
+        if (!allowedTypes.includes(file.mimetype)) {
+          callback(
+            new BadRequestException(
+              "Only JPG, PNG, and WEBP images are allowed.",
+            ),
+            false,
+          );
 
-  @Delete(":id")
-  remove(
-    @Param("id", ParseIntPipe) id: number,
+          return;
+        }
+
+        callback(null, true);
+      },
+    }),
+  )
+  async testUpload(
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.galleryService.remove(id);
+    if (!file) {
+      throw new BadRequestException(
+        'Please upload an image using the "image" field.',
+      );
+    }
+
+    const result =
+      await this.cloudinaryService.uploadImage(file);
+
+    return {
+      success: true,
+      image: {
+        url: result.secure_url,
+        publicId: result.public_id,
+        width: result.width,
+        height: result.height,
+        format: result.format,
+        bytes: result.bytes,
+        originalFilename: result.original_filename,
+      },
+    };
   }
-  @Get(":id")
-findOne(
-  @Param("id", ParseIntPipe)
-  id: number,
-) {
-  return this.galleryService.findOneAdmin(id);
-}
 }
