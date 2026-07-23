@@ -268,4 +268,51 @@ export class NotificationsService {
       message: 'Notification deleted successfully',
     };
   }
+  async getUnreadCount() {
+  const unreadCount = await this.prisma.notification.count({
+    where: {
+      isRead: false,
+    },
+  });
+
+  return {
+    unreadCount,
+  };
+}
+
+async getRecent(limit = 10) {
+  const safeLimit = Math.min(Math.max(limit, 1), 20);
+
+  const notifications = await this.prisma.notification.findMany({
+    orderBy: {
+      createdAt: 'desc',
+    },
+    take: safeLimit,
+  });
+
+  const unreadCount = await this.prisma.notification.count({
+    where: {
+      isRead: false,
+    },
+  });
+
+  return {
+    data: notifications,
+    unreadCount,
+  };
+}
+
+async markAsRead(id: number) {
+  await this.findOne(id);
+
+  return this.prisma.notification.update({
+    where: {
+      id,
+    },
+    data: {
+      isRead: true,
+      readAt: new Date(),
+    },
+  });
+}
 }
