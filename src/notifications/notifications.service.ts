@@ -1,25 +1,107 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { Prisma } from '../generated/prisma/client.js';
+import {
+  NotificationPriority,
+  NotificationType,
+} from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateNotificationDto } from './dto/create-notification.dto.js';
 import { QueryNotificationsDto } from './dto/query-notifications.dto.js';
 import { UpdateNotificationDto } from './dto/update-notification.dto.js';
+
+type CreateContactNotificationInput = {
+  contactMessageId: number;
+  senderName: string;
+  subject?: string | null;
+  priority?: NotificationPriority;
+};
+
+type CreateEventNotificationInput = {
+  eventId: number;
+  eventTitle: string;
+  action: 'created' | 'updated' | 'published' | 'cancelled';
+  priority?: NotificationPriority;
+};
+
+type CreateGalleryNotificationInput = {
+  galleryImageId: number;
+  imageTitle: string;
+  action: 'uploaded' | 'updated' | 'published' | 'archived';
+  priority?: NotificationPriority;
+};
+
+type CreateFaqNotificationInput = {
+  faqId: number;
+  question: string;
+  action: 'created' | 'updated' | 'published' | 'archived';
+  priority?: NotificationPriority;
+};
 
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   create(createNotificationDto: CreateNotificationDto) {
+    return this.createNotification(createNotificationDto);
+  }
+
+  createNotification(createNotificationDto: CreateNotificationDto) {
     return this.prisma.notification.create({
       data: {
         title: createNotificationDto.title,
         message: createNotificationDto.message,
         type: createNotificationDto.type,
-        priority: createNotificationDto.priority,
+        priority:
+          createNotificationDto.priority ?? NotificationPriority.NORMAL,
         link: createNotificationDto.link,
         contactMessageId: createNotificationDto.contactMessageId,
       },
+    });
+  }
+
+  createContactNotification(input: CreateContactNotificationInput) {
+    const subjectText = input.subject
+      ? ` Subject: ${input.subject}.`
+      : '';
+
+    return this.createNotification({
+      title: 'New contact message',
+      message: `${input.senderName} submitted a new contact message.${subjectText}`,
+      type: NotificationType.CONTACT_MESSAGE,
+      priority: input.priority ?? NotificationPriority.NORMAL,
+      link: `/admin/messages/${input.contactMessageId}`,
+      contactMessageId: input.contactMessageId,
+    });
+  }
+
+  createEventNotification(input: CreateEventNotificationInput) {
+    return this.createNotification({
+      title: `Event ${input.action}`,
+      message: `The event "${input.eventTitle}" was ${input.action}.`,
+      type: NotificationType.EVENT,
+      priority: input.priority ?? NotificationPriority.NORMAL,
+      link: `/admin/events/${input.eventId}`,
+    });
+  }
+
+  createGalleryNotification(input: CreateGalleryNotificationInput) {
+    return this.createNotification({
+      title: `Gallery image ${input.action}`,
+      message: `The gallery image "${input.imageTitle}" was ${input.action}.`,
+      type: NotificationType.GALLERY,
+      priority: input.priority ?? NotificationPriority.NORMAL,
+      link: `/admin/gallery/${input.galleryImageId}`,
+    });
+  }
+
+  createFaqNotification(input: CreateFaqNotificationInput) {
+    return this.createNotification({
+      title: `FAQ ${input.action}`,
+      message: `The FAQ "${input.question}" was ${input.action}.`,
+      type: NotificationType.FAQ,
+      priority: input.priority ?? NotificationPriority.NORMAL,
+      link: `/admin/faq/${input.faqId}`,
     });
   }
 
