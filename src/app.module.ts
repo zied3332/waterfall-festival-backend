@@ -10,6 +10,7 @@ import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { GalleryModule } from "./gallery/gallery.module.js";
 import { FaqModule } from "./faq/faq.module.js";
+import { NotificationsModule } from './notifications/notifications.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -22,6 +23,7 @@ import { FaqModule } from "./faq/faq.module.js";
     AuthModule,
     GalleryModule,
     FaqModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
