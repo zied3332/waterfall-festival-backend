@@ -32,6 +32,12 @@ enum GalleryStatus {
   ARCHIVED
 }
 
+enum FaqStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 model User {
   id           Int       @id @default(autoincrement())
   email        String    @unique
@@ -105,6 +111,22 @@ model GalleryImage {
   @@index([status])
   @@index([eventId])
   @@index([isFeatured])
+  @@index([sortOrder])
+  @@index([createdAt])
+}
+
+model Faq {
+  id        Int       @id @default(autoincrement())
+  question  String
+  answer    String
+  category  String?
+  status    FaqStatus @default(DRAFT)
+  sortOrder Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status])
+  @@index([category])
   @@index([sortOrder])
   @@index([createdAt])
 }

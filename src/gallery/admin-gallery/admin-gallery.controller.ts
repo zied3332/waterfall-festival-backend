@@ -2,7 +2,11 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
+  ParseIntPipe,
+  Patch,
   Post,
   UploadedFile,
   UploadedFiles,
@@ -15,6 +19,7 @@ import {
 import { memoryStorage } from "multer";
 
 import { CloudinaryService } from "../../cloudinary/cloudinary.service.js";
+import { UpdateGalleryImageDto } from "../dto/update-gallery-image.dto.js";
 import { GalleryService } from "../gallery.service.js";
 
 const allowedImageTypes = [
@@ -73,12 +78,42 @@ export class AdminGalleryController {
     return this.galleryService.findAll();
   }
 
+  @Get(":id")
+  findOne(
+    @Param("id", ParseIntPipe)
+    id: number,
+  ) {
+    return this.galleryService.findOne(id);
+  }
+
+  @Patch(":id")
+  update(
+    @Param("id", ParseIntPipe)
+    id: number,
+    @Body()
+    updateGalleryImageDto: UpdateGalleryImageDto,
+  ) {
+    return this.galleryService.update(
+      id,
+      updateGalleryImageDto,
+    );
+  }
+
+  @Delete(":id")
+  remove(
+    @Param("id", ParseIntPipe)
+    id: number,
+  ) {
+    return this.galleryService.remove(id);
+  }
+
   @Post("test-upload")
   @UseInterceptors(
     FileInterceptor("image", imageUploadOptions),
   )
   async testUpload(
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFile()
+    file?: Express.Multer.File,
   ) {
     if (!file) {
       throw new BadRequestException(
@@ -114,7 +149,8 @@ export class AdminGalleryController {
   async uploadImages(
     @UploadedFiles()
     files: Express.Multer.File[] | undefined,
-    @Body() body: GalleryUploadBody,
+    @Body()
+    body: GalleryUploadBody,
   ) {
     if (!files?.length) {
       throw new BadRequestException(
@@ -147,9 +183,12 @@ export class AdminGalleryController {
       ? Number(body.sortOrder)
       : 0;
 
-    if (!Number.isInteger(parsedSortOrder)) {
+    if (
+      !Number.isInteger(parsedSortOrder) ||
+      parsedSortOrder < 0
+    ) {
       throw new BadRequestException(
-        "sortOrder must be a valid integer.",
+        "sortOrder must be a non-negative integer.",
       );
     }
 
