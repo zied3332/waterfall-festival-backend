@@ -5,22 +5,33 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateContactMessageDto } from './dto/create-contact-message.dto.js';
 import { QueryContactMessagesDto } from './dto/query-contact-messages.dto.js';
 import { UpdateContactMessageDto } from './dto/update-contact-message.dto.js';
-
+import { NotificationsService } from '../notifications/notifications.service.js';
 @Injectable()
 export class ContactService {
-  constructor(private readonly prisma: PrismaService) {}
+constructor(
+  private readonly prisma: PrismaService,
+  private readonly notificationsService: NotificationsService,
+) {}
 
-  create(createContactMessageDto: CreateContactMessageDto) {
-    return this.prisma.contactMessage.create({
-      data: {
-        name: createContactMessageDto.name,
-        email: createContactMessageDto.email,
-        phone: createContactMessageDto.phone,
-        subject: createContactMessageDto.subject,
-        message: createContactMessageDto.message,
-      },
-    });
-  }
+async create(createContactMessageDto: CreateContactMessageDto) {
+  const contactMessage = await this.prisma.contactMessage.create({
+    data: {
+      name: createContactMessageDto.name,
+      email: createContactMessageDto.email,
+      phone: createContactMessageDto.phone,
+      subject: createContactMessageDto.subject,
+      message: createContactMessageDto.message,
+    },
+  });
+
+  await this.notificationsService.createContactNotification({
+    contactMessageId: contactMessage.id,
+    senderName: contactMessage.name,
+    subject: contactMessage.subject,
+  });
+
+  return contactMessage;
+}
 
   async findAll(query: QueryContactMessagesDto) {
     const page = query.page ?? 1;
