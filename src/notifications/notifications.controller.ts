@@ -1,14 +1,16 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   Param,
   ParseIntPipe,
   Patch,
-  Body,
+  Post,
   Query,
 } from '@nestjs/common';
 
+import { CreateNotificationDto } from './dto/create-notification.dto.js';
 import { QueryNotificationsDto } from './dto/query-notifications.dto.js';
 import { UpdateNotificationDto } from './dto/update-notification.dto.js';
 import { NotificationsService } from './notifications.service.js';
@@ -18,6 +20,11 @@ export class NotificationsController {
   constructor(
     private readonly notificationsService: NotificationsService,
   ) {}
+
+  @Post()
+  create(@Body() createNotificationDto: CreateNotificationDto) {
+    return this.notificationsService.create(createNotificationDto);
+  }
 
   @Get()
   findAll(@Query() query: QueryNotificationsDto) {
