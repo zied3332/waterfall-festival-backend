@@ -9,7 +9,7 @@ import { ContactModule } from './contact/contact.module.js';
 import { UsersModule } from './users/users.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { GalleryModule } from "./gallery/gallery.module.js";
-import { FaqModule } from './faq/faq.module';
+import { FaqModule } from "./faq/faq.module.js";
 @Module({
   imports: [
     ConfigModule.forRoot({
