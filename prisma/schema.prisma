@@ -26,6 +26,24 @@ enum MessageStatus {
   ARCHIVED
 }
 
+enum MessageCategory {
+  GENERAL
+  TICKETS
+  VIP
+  PARTNERSHIP
+  VENDOR
+  MEDIA
+  LOST_AND_FOUND
+  OTHER
+}
+
+enum MessagePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
 enum GalleryStatus {
   DRAFT
   PUBLISHED
@@ -36,6 +54,22 @@ enum FaqStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
+}
+
+enum NotificationType {
+  CONTACT_MESSAGE
+  EVENT
+  TICKET
+  GALLERY
+  FAQ
+  SYSTEM
+}
+
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
 }
 
 model User {
@@ -77,17 +111,25 @@ model Event {
 }
 
 model ContactMessage {
-  id        Int           @id @default(autoincrement())
-  name      String
-  email     String
-  phone     String?
-  subject   String?
-  message   String
-  status    MessageStatus @default(NEW)
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id      Int     @id @default(autoincrement())
+  name    String
+  email   String
+  phone   String?
+  subject String?
+  message String
+
+  category MessageCategory @default(GENERAL)
+  priority MessagePriority @default(NORMAL)
+  status   MessageStatus   @default(NEW)
+
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([category])
+  @@index([priority])
   @@index([email])
   @@index([createdAt])
 }
@@ -130,80 +172,26 @@ model Faq {
   @@index([sortOrder])
   @@index([createdAt])
 }
-enum MessageStatus {
-  NEW
-  READ
-  REPLIED
-  ARCHIVED
-}
-
-enum MessageCategory {
-  GENERAL
-  TICKETS
-  VIP
-  PARTNERSHIP
-  VENDOR
-  MEDIA
-  LOST_AND_FOUND
-  OTHER
-}
-
-enum MessagePriority {
-  LOW
-  NORMAL
-  HIGH
-  URGENT
-}
-
-model ContactMessage {
-  id        Int             @id @default(autoincrement())
-  name      String
-  email     String
-  subject   String
-  message   String
-
-  category  MessageCategory @default(GENERAL)
-  priority  MessagePriority @default(NORMAL)
-  status    MessageStatus   @default(NEW)
-
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-
-  notifications Notification[]
-}
-enum NotificationType {
-  CONTACT_MESSAGE
-  EVENT
-  TICKET
-  GALLERY
-  FAQ
-  SYSTEM
-}
-
-enum NotificationPriority {
-  LOW
-  NORMAL
-  HIGH
-  URGENT
-}
 
 model Notification {
-  id               Int                  @id @default(autoincrement())
-  title            String
-  message          String
-  type             NotificationType
-  priority         NotificationPriority @default(NORMAL)
+  id       Int                  @id @default(autoincrement())
+  title    String
+  message  String
+  type     NotificationType
+  priority NotificationPriority @default(NORMAL)
 
-  isRead           Boolean              @default(false)
-  link             String?
+  isRead Boolean @default(false)
+  link   String?
 
   contactMessageId Int?
-  contactMessage   ContactMessage?      @relation(
-    fields: [contactMessageId],
-    references: [id],
-    onDelete: SetNull
-  )
+  contactMessage   ContactMessage? @relation(fields: [contactMessageId], references: [id], onDelete: SetNull)
 
-  createdAt        DateTime             @default(now())
-  readAt           DateTime?
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  @@index([type])
+  @@index([priority])
+  @@index([isRead])
+  @@index([contactMessageId])
+  @@index([createdAt])
 }

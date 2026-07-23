@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseEnumPipe,
   ParseIntPipe,
   Patch,
   Query,
@@ -14,9 +13,10 @@ import {
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
-import { MessageStatus, UserRole } from '../generated/prisma/enums.js';
+import { UserRole } from '../generated/prisma/enums.js';
 import { ContactService } from './contact.service.js';
-import { UpdateMessageStatusDto } from './dto/update-message-status.dto.js';
+import { QueryContactMessagesDto } from './dto/query-contact-messages.dto.js';
+import { UpdateContactMessageDto } from './dto/update-contact-message.dto.js';
 
 @Controller('admin/messages')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -25,16 +25,8 @@ export class AdminMessagesController {
   constructor(private readonly contactService: ContactService) {}
 
   @Get()
-  findAll(
-    @Query(
-      'status',
-      new ParseEnumPipe(MessageStatus, {
-        optional: true,
-      }),
-    )
-    status?: MessageStatus,
-  ) {
-    return this.contactService.findAll(status);
+  findAll(@Query() query: QueryContactMessagesDto) {
+    return this.contactService.findAll(query);
   }
 
   @Get(':id')
@@ -42,12 +34,12 @@ export class AdminMessagesController {
     return this.contactService.findOne(id);
   }
 
-  @Patch(':id/status')
-  updateStatus(
+  @Patch(':id')
+  update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() updateMessageStatusDto: UpdateMessageStatusDto,
+    @Body() updateContactMessageDto: UpdateContactMessageDto,
   ) {
-    return this.contactService.updateStatus(id, updateMessageStatusDto);
+    return this.contactService.update(id, updateContactMessageDto);
   }
 
   @Delete(':id')
