@@ -195,3 +195,74 @@ model Notification {
   @@index([contactMessageId])
   @@index([createdAt])
 }
+
+model ExperiencePage {
+  id Int @id @default(autoincrement())
+
+  heroBadge       String?
+  heroTitle       String
+  heroSubtitle    String?
+  heroDescription String?
+
+  storyEyebrow     String?
+  storyTitle       String
+  storyDescription String
+
+  buttonText String?
+  buttonUrl  String?
+
+  isPublished Boolean @default(false)
+
+  highlights ExperienceHighlight[]
+  images     ExperienceImage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isPublished])
+  @@index([createdAt])
+}
+
+model ExperienceHighlight {
+  id Int @id @default(autoincrement())
+
+  title       String
+  description String
+  icon        String?
+  sortOrder   Int     @default(0)
+  isVisible   Boolean @default(true)
+
+  experiencePageId Int
+  experiencePage   ExperiencePage @relation(fields: [experiencePageId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([experiencePageId])
+  @@index([sortOrder])
+  @@index([isVisible])
+  @@index([createdAt])
+}
+
+model ExperienceImage {
+  id Int @id @default(autoincrement())
+
+  imageUrl   String
+  altText    String?
+  caption    String?
+  sortOrder  Int     @default(0)
+  isFeatured Boolean @default(false)
+  isVisible  Boolean @default(true)
+
+  experiencePageId Int
+  experiencePage   ExperiencePage @relation(fields: [experiencePageId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([experiencePageId])
+  @@index([sortOrder])
+  @@index([isFeatured])
+  @@index([isVisible])
+  @@index([createdAt])
+}

@@ -31,9 +31,26 @@ export class NotificationsController {
     return this.notificationsService.findAll(query);
   }
 
+  @Get('unread-count')
+  getUnreadCount() {
+    return this.notificationsService.getUnreadCount();
+  }
+
+  @Get('recent')
+  getRecent(@Query('limit') limit?: string) {
+    const parsedLimit = limit ? Number(limit) : 10;
+
+    return this.notificationsService.getRecent(parsedLimit);
+  }
+
   @Patch('read-all')
   markAllAsRead() {
     return this.notificationsService.markAllAsRead();
+  }
+
+  @Patch(':id/read')
+  markAsRead(@Param('id', ParseIntPipe) id: number) {
+    return this.notificationsService.markAsRead(id);
   }
 
   @Get(':id')
