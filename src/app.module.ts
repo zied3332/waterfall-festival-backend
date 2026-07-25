@@ -11,7 +11,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { GalleryModule } from "./gallery/gallery.module.js";
 import { FaqModule } from "./faq/faq.module.js";
 import { NotificationsModule } from './notifications/notifications.module.js';
-import { ExperienceModule } from './experience/experience.module';
+import { ExperienceModule } from './experience/experience.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
