@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { GalleryModule } from "./gallery/gallery.module.js";
 import { FaqModule } from "./faq/faq.module.js";
 import { NotificationsModule } from './notifications/notifications.module.js';
+import { ExperienceModule } from './experience/experience.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -24,6 +25,7 @@ import { NotificationsModule } from './notifications/notifications.module.js';
     GalleryModule,
     FaqModule,
     NotificationsModule,
+    ExperienceModule,
   ],
   controllers: [AppController],
   providers: [AppService],
