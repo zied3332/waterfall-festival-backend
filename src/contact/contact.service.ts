@@ -1,37 +1,85 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { Prisma } from '../generated/prisma/client.js';
+import { MailService } from '../mail/mail.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateContactMessageDto } from './dto/create-contact-message.dto.js';
 import { QueryContactMessagesDto } from './dto/query-contact-messages.dto.js';
 import { UpdateContactMessageDto } from './dto/update-contact-message.dto.js';
-import { NotificationsService } from '../notifications/notifications.service.js';
+
 @Injectable()
 export class ContactService {
-constructor(
-  private readonly prisma: PrismaService,
-  private readonly notificationsService: NotificationsService,
-) {}
+  private readonly logger = new Logger(
+    ContactService.name,
+  );
 
-async create(createContactMessageDto: CreateContactMessageDto) {
-  const contactMessage = await this.prisma.contactMessage.create({
-    data: {
-      name: createContactMessageDto.name,
-      email: createContactMessageDto.email,
-      phone: createContactMessageDto.phone,
-      subject: createContactMessageDto.subject,
-      message: createContactMessageDto.message,
-    },
-  });
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationsService: NotificationsService,
+    private readonly mailService: MailService,
+  ) {}
 
-  await this.notificationsService.createContactNotification({
-    contactMessageId: contactMessage.id,
-    senderName: contactMessage.name,
-    subject: contactMessage.subject,
-  });
+  async create(
+    createContactMessageDto: CreateContactMessageDto,
+  ) {
+    const contactMessage =
+      await this.prisma.contactMessage.create({
+        data: {
+          name: createContactMessageDto.name,
+          email: createContactMessageDto.email,
+          phone: createContactMessageDto.phone,
+          subject: createContactMessageDto.subject,
+          message: createContactMessageDto.message,
+        },
+      });
 
-  return contactMessage;
-}
+    const subject =
+      contactMessage.subject?.trim() || 'No subject';
+
+    const sideEffects = await Promise.allSettled([
+      this.notificationsService.createContactNotification({
+        contactMessageId: contactMessage.id,
+        senderName: contactMessage.name,
+        subject,
+      }),
+
+      this.mailService.sendNewContactMessageEmail({
+        contactMessageId: contactMessage.id,
+        name: contactMessage.name,
+        email: contactMessage.email,
+        phone: contactMessage.phone,
+        subject,
+        message: contactMessage.message,
+        createdAt: contactMessage.createdAt,
+      }),
+    ]);
+
+    const [notificationResult, emailResult] =
+      sideEffects;
+
+    if (notificationResult.status === 'rejected') {
+      this.logger.error(
+        `Failed to create notification for contact message ${contactMessage.id}`,
+        this.getErrorStack(
+          notificationResult.reason,
+        ),
+      );
+    }
+
+    if (emailResult.status === 'rejected') {
+      this.logger.error(
+        `Failed to email the admin about contact message ${contactMessage.id}`,
+        this.getErrorStack(emailResult.reason),
+      );
+    }
+
+    return contactMessage;
+  }
 
   async findAll(query: QueryContactMessagesDto) {
     const page = query.page ?? 1;
@@ -87,20 +135,21 @@ async create(createContactMessageDto: CreateContactMessageDto) {
       }),
     };
 
-    const [messages, total] = await this.prisma.$transaction([
-      this.prisma.contactMessage.findMany({
-        where,
-        orderBy: {
-          createdAt: 'desc',
-        },
-        skip,
-        take: limit,
-      }),
+    const [messages, total] =
+      await this.prisma.$transaction([
+        this.prisma.contactMessage.findMany({
+          where,
+          orderBy: {
+            createdAt: 'desc',
+          },
+          skip,
+          take: limit,
+        }),
 
-      this.prisma.contactMessage.count({
-        where,
-      }),
-    ]);
+        this.prisma.contactMessage.count({
+          where,
+        }),
+      ]);
 
     return {
       data: messages,
@@ -114,11 +163,12 @@ async create(createContactMessageDto: CreateContactMessageDto) {
   }
 
   async findOne(id: number) {
-    const contactMessage = await this.prisma.contactMessage.findUnique({
-      where: {
-        id,
-      },
-    });
+    const contactMessage =
+      await this.prisma.contactMessage.findUnique({
+        where: {
+          id,
+        },
+      });
 
     if (!contactMessage) {
       throw new NotFoundException(
@@ -153,7 +203,16 @@ async create(createContactMessageDto: CreateContactMessageDto) {
     });
 
     return {
-      message: 'Contact message deleted successfully',
+      message:
+        'Contact message deleted successfully',
     };
+  }
+
+  private getErrorStack(error: unknown): string {
+    if (error instanceof Error) {
+      return error.stack ?? error.message;
+    }
+
+    return String(error);
   }
 }
