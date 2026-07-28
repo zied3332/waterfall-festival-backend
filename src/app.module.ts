@@ -12,7 +12,7 @@ import { GalleryModule } from "./gallery/gallery.module.js";
 import { FaqModule } from "./faq/faq.module.js";
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { ExperienceModule } from './experience/experience.module.js';
-import { TicketsModule } from './tickets/tickets.module';
+import { TicketsModule } from './tickets/tickets.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
