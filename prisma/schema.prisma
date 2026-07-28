@@ -72,6 +72,38 @@ enum NotificationPriority {
   URGENT
 }
 
+enum TicketStatus {
+  DRAFT
+  SCHEDULED
+  AVAILABLE
+  LIMITED
+  SOLD_OUT
+  EXPIRED
+  HIDDEN
+}
+
+enum TicketCategory {
+  GENERAL
+  EARLY_BIRD
+  VIP
+  GROUP
+  PACKAGE
+  ADD_ON
+  TRANSPORT
+  OTHER
+}
+
+enum TicketAvailabilityMode {
+  MANUAL
+  EXTERNAL_API
+  HIDDEN
+}
+
+enum TicketProvider {
+  EVENTPOP
+  OTHER
+}
+
 model User {
   id           Int       @id @default(autoincrement())
   email        String    @unique
@@ -100,13 +132,94 @@ model Event {
   capacity         Int?
   remainingTickets Int?
   status           EventStatus @default(DRAFT)
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+
+  ticketProvider    TicketProvider @default(EVENTPOP)
+  ticketPurchaseUrl String?
+  externalEventId   String?
 
   galleryImages GalleryImage[]
+  tickets       TicketPreview[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([date])
+  @@index([ticketProvider])
+  @@index([externalEventId])
+  @@index([createdAt])
+}
+
+model TicketPreview {
+  id Int @id @default(autoincrement())
+
+  eventId Int
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  name             String
+  slug             String
+  shortDescription String?
+  description      String?
+
+  category TicketCategory @default(GENERAL)
+  status   TicketStatus   @default(DRAFT)
+
+  price         Decimal  @db.Decimal(10, 2)
+  originalPrice Decimal? @db.Decimal(10, 2)
+  currency      String   @default("THB")
+
+  availabilityMode  TicketAvailabilityMode @default(HIDDEN)
+  totalQuantity     Int?
+  remainingQuantity Int?
+  availabilityLabel String?
+
+  saleStartsAt DateTime?
+  saleEndsAt   DateTime?
+
+  minimumPerOrder Int?
+  maximumPerOrder Int?
+
+  externalPurchaseUrl String?
+  externalTicketId    String?
+
+  badge      String?
+  imageUrl   String?
+  isFeatured Boolean @default(false)
+  sortOrder  Int     @default(0)
+
+  benefits TicketBenefit[]
+
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([eventId, slug])
+  @@index([eventId])
+  @@index([status])
+  @@index([category])
+  @@index([availabilityMode])
+  @@index([isFeatured])
+  @@index([sortOrder])
+  @@index([saleStartsAt])
+  @@index([saleEndsAt])
+  @@index([externalTicketId])
+  @@index([createdAt])
+}
+
+model TicketBenefit {
+  id Int @id @default(autoincrement())
+
+  ticketPreviewId Int
+  ticketPreview   TicketPreview @relation(fields: [ticketPreviewId], references: [id], onDelete: Cascade)
+
+  text      String
+  sortOrder Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ticketPreviewId])
+  @@index([sortOrder])
   @@index([createdAt])
 }
 
