@@ -12,6 +12,7 @@ import { GalleryModule } from "./gallery/gallery.module.js";
 import { FaqModule } from "./faq/faq.module.js";
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { ExperienceModule } from './experience/experience.module.js';
+import { TicketsModule } from './tickets/tickets.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -26,6 +27,7 @@ import { ExperienceModule } from './experience/experience.module.js';
     FaqModule,
     NotificationsModule,
     ExperienceModule,
+    TicketsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
