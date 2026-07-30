@@ -122,16 +122,17 @@ model User {
 }
 
 model Event {
-  id               Int         @id @default(autoincrement())
-  title            String
-  slug             String      @unique
-  description      String
-  date             DateTime
-  location         String
-  heroImageUrl     String?
-  capacity         Int?
-  remainingTickets Int?
-  status           EventStatus @default(DRAFT)
+  id                Int         @id @default(autoincrement())
+  title             String
+  slug              String      @unique
+  description       String
+  date              DateTime
+  location          String
+  heroImageUrl      String?
+  heroImagePublicId String?
+  capacity          Int?
+  remainingTickets  Int?
+  status            EventStatus @default(DRAFT)
 
   ticketProvider    TicketProvider @default(EVENTPOP)
   ticketPurchaseUrl String?

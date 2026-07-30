@@ -1,12 +1,16 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { AdminTicketsController } from './admin-tickets.controller.js';
 import { TicketsController } from './tickets.controller.js';
 import { TicketsService } from './tickets.service.js';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [
+    PrismaModule,
+    AuthModule,
+  ],
   controllers: [
     TicketsController,
     AdminTicketsController,
