@@ -243,7 +243,20 @@ export class EventsService {
       },
     });
   }
+async findOneForAdmin(id: number) {
+  const event =
+    await this.prisma.event.findUnique({
+      where: { id },
+    });
 
+  if (!event) {
+    throw new NotFoundException(
+      "Event not found",
+    );
+  }
+
+  return event;
+}
   private createSlug(
     title: string,
   ): string {

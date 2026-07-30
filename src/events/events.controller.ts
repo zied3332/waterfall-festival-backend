@@ -15,4 +15,5 @@ export class EventsController {
   findBySlug(@Param('slug') slug: string) {
     return this.eventsService.findBySlug(slug);
   }
+  
 }
