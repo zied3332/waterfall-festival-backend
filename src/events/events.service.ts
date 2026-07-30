@@ -8,9 +8,13 @@ import { EventStatus } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateEventDto } from './dto/create-event.dto.js';
 import { UpdateEventDto } from './dto/update-event.dto.js';
+import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 @Injectable()
 export class EventsService {
-  constructor(private readonly prisma: PrismaService) {}
+ constructor(
+  private readonly prisma: PrismaService,
+  private readonly cloudinaryService: CloudinaryService,
+) {}
 
   findAll() {
     return this.prisma.event.findMany({
@@ -66,6 +70,36 @@ export class EventsService {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
   }
+  async uploadHeroImage(
+  id: number,
+  file: Express.Multer.File,
+) {
+  const existingEvent =
+    await this.prisma.event.findUnique({
+      where: { id },
+    });
+
+  if (!existingEvent) {
+    throw new NotFoundException(
+      "Event not found",
+    );
+  }
+
+  const uploadedImage =
+    await this.cloudinaryService.uploadEventHeroImage(
+      file,
+    );
+
+  return this.prisma.event.update({
+    where: { id },
+    data: {
+      heroImageUrl:
+        uploadedImage.secure_url,
+      heroImagePublicId:
+        uploadedImage.public_id,
+    },
+  });
+}
   async update(id: number, updateEventDto: UpdateEventDto) {
     const existingEvent = await this.prisma.event.findUnique({
       where: { id },
