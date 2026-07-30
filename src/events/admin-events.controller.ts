@@ -22,6 +22,17 @@ import { CreateEventDto } from "./dto/create-event.dto.js";
 import { UpdateEventDto } from "./dto/update-event.dto.js";
 import { EventsService } from "./events.service.js";
 
+const MAX_HERO_IMAGE_SIZE =
+  5 * 1024 * 1024;
+
+const ALLOWED_HERO_IMAGE_MIME_TYPES =
+  new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/avif",
+  ]);
+
 @Controller("admin/events")
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
@@ -47,7 +58,34 @@ export class AdminEventsController {
 
   @Patch(":id/hero-image")
   @UseInterceptors(
-    FileInterceptor("image"),
+    FileInterceptor("image", {
+      limits: {
+        fileSize: MAX_HERO_IMAGE_SIZE,
+        files: 1,
+      },
+      fileFilter: (
+        _request,
+        file,
+        callback,
+      ) => {
+        if (
+          !ALLOWED_HERO_IMAGE_MIME_TYPES.has(
+            file.mimetype,
+          )
+        ) {
+          callback(
+            new BadRequestException(
+              "Only JPG, PNG, WebP and AVIF images are allowed.",
+            ),
+            false,
+          );
+
+          return;
+        }
+
+        callback(null, true);
+      },
+    }),
   )
   uploadHeroImage(
     @Param("id", ParseIntPipe)
