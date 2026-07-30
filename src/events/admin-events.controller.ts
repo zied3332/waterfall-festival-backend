@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,26 +8,36 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
-} from '@nestjs/common';
+  UseInterceptors,
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 
-import { Roles } from '../auth/decorators/roles.decorator.js';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { RolesGuard } from '../auth/guards/roles.guard.js';
-import { UserRole } from '../generated/prisma/enums.js';
-import { CreateEventDto } from './dto/create-event.dto.js';
-import { UpdateEventDto } from './dto/update-event.dto.js';
-import { EventsService } from './events.service.js';
+import { Roles } from "../auth/decorators/roles.decorator.js";
+import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard.js";
+import { RolesGuard } from "../auth/guards/roles.guard.js";
+import { UserRole } from "../generated/prisma/enums.js";
+import { CreateEventDto } from "./dto/create-event.dto.js";
+import { UpdateEventDto } from "./dto/update-event.dto.js";
+import { EventsService } from "./events.service.js";
 
-@Controller('admin/events')
+@Controller("admin/events")
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class AdminEventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+  ) {}
 
   @Post()
-  create(@Body() createEventDto: CreateEventDto) {
-    return this.eventsService.create(createEventDto);
+  create(
+    @Body()
+    createEventDto: CreateEventDto,
+  ) {
+    return this.eventsService.create(
+      createEventDto,
+    );
   }
 
   @Get()
@@ -34,16 +45,46 @@ export class AdminEventsController {
     return this.eventsService.findAllForAdmin();
   }
 
-  @Patch(':id')
-  update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() updateEventDto: UpdateEventDto,
+  @Patch(":id/hero-image")
+  @UseInterceptors(
+    FileInterceptor("image"),
+  )
+  uploadHeroImage(
+    @Param("id", ParseIntPipe)
+    id: number,
+    @UploadedFile()
+    file?: Express.Multer.File,
   ) {
-    return this.eventsService.update(id, updateEventDto);
+    if (!file) {
+      throw new BadRequestException(
+        "An event hero image is required.",
+      );
+    }
+
+    return this.eventsService.uploadHeroImage(
+      id,
+      file,
+    );
   }
 
-  @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
+  @Patch(":id")
+  update(
+    @Param("id", ParseIntPipe)
+    id: number,
+    @Body()
+    updateEventDto: UpdateEventDto,
+  ) {
+    return this.eventsService.update(
+      id,
+      updateEventDto,
+    );
+  }
+
+  @Delete(":id")
+  remove(
+    @Param("id", ParseIntPipe)
+    id: number,
+  ) {
     return this.eventsService.remove(id);
   }
 }
