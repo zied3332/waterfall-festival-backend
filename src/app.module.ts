@@ -1,18 +1,20 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
 
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
-import { EventsModule } from './events/events.module.js';
-import { PrismaModule } from './prisma/prisma.module.js';
-import { ContactModule } from './contact/contact.module.js';
-import { UsersModule } from './users/users.module.js';
-import { AuthModule } from './auth/auth.module.js';
-import { GalleryModule } from "./gallery/gallery.module.js";
+import { AppController } from "./app.controller.js";
+import { AppService } from "./app.service.js";
+import { AuthModule } from "./auth/auth.module.js";
+import { ContactModule } from "./contact/contact.module.js";
+import { EventsModule } from "./events/events.module.js";
+import { ExperienceModule } from "./experience/experience.module.js";
 import { FaqModule } from "./faq/faq.module.js";
-import { NotificationsModule } from './notifications/notifications.module.js';
-import { ExperienceModule } from './experience/experience.module.js';
-import { TicketsModule } from './tickets/tickets.module.js';
+import { GalleryModule } from "./gallery/gallery.module.js";
+import { NotificationsModule } from "./notifications/notifications.module.js";
+import { PrismaModule } from "./prisma/prisma.module.js";
+import { SettingsModule } from "./settings/settings.module.js";
+import { TicketsModule } from "./tickets/tickets.module.js";
+import { UsersModule } from "./users/users.module.js";
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -28,8 +30,13 @@ import { TicketsModule } from './tickets/tickets.module.js';
     NotificationsModule,
     ExperienceModule,
     TicketsModule,
+    SettingsModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  controllers: [
+    AppController,
+  ],
+  providers: [
+    AppService,
+  ],
 })
 export class AppModule {}
