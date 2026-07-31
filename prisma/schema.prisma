@@ -103,7 +103,69 @@ enum TicketProvider {
   EVENTPOP
   OTHER
 }
+enum FestivalStatus {
+  UPCOMING
+  LIVE
+  FINISHED
+}
+model WebsiteSettings {
+  id Int @id @default(1)
 
+  festivalName   String         @default("Waterfall Festival Koh Phangan")
+  tagline        String         @default("Nature. Music. Freedom.")
+  location       String         @default("Koh Phangan, Thailand")
+  venue          String         @default("Waterfall Party Venue")
+  startDate      DateTime?
+  endDate        DateTime?
+  timezone       String         @default("Asia/Bangkok")
+  festivalStatus FestivalStatus @default(UPCOMING)
+  defaultLanguage String        @default("English")
+  websiteUrl     String         @default("")
+
+  publicEmail      String @default("")
+  supportEmail     String @default("")
+  phoneNumber      String @default("")
+  whatsappNumber   String @default("")
+  address          String @default("")
+  googleMapsUrl    String @default("")
+  contactFormEnabled Boolean @default(true)
+
+  instagramUrl String @default("")
+  facebookUrl  String @default("")
+  tiktokUrl    String @default("")
+  youtubeUrl   String @default("")
+  spotifyUrl   String @default("")
+
+  showSocialLinksInFooter Boolean @default(true)
+
+  assistantEnabled        Boolean @default(true)
+  assistantName           String  @default("Waterfall Assistant")
+  assistantWelcomeMessage String  @default("Hi! Ask me about tickets, events, the venue, or festival information.")
+  assistantPlaceholder    String  @default("Ask about the festival...")
+  assistantOfflineMessage String  @default("The assistant is temporarily unavailable. Please contact our support team.")
+  escalationEmail         String  @default("")
+
+  eventsPageEnabled     Boolean @default(true)
+  ticketsPageEnabled    Boolean @default(true)
+  experiencePageEnabled Boolean @default(true)
+  galleryPageEnabled    Boolean @default(true)
+  faqPageEnabled        Boolean @default(true)
+  newsletterEnabled     Boolean @default(false)
+
+  primaryAccent   String @default("#7c3aed")
+  secondaryAccent String @default("#22d3ee")
+
+  logoUrl        String @default("/logo.png")
+  compactLogoUrl String @default("/logo-mark.png")
+  faviconUrl     String @default("/favicon.ico")
+  socialImageUrl String @default("/social-share.jpg")
+
+  footerDescription String @default("Experience Thailand's most unforgettable music festival in the heart of Koh Phangan.")
+  footerCopyright   String @default("© Waterfall Festival. All rights reserved.")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 model User {
   id           Int       @id @default(autoincrement())
   email        String    @unique
