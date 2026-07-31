@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -10,6 +11,8 @@ import { EventStatus } from "../generated/prisma/enums.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { CreateEventDto } from "./dto/create-event.dto.js";
 import { UpdateEventDto } from "./dto/update-event.dto.js";
+
+const FESTIVAL_TIME_ZONE = "Asia/Bangkok";
 
 @Injectable()
 export class EventsService {
@@ -54,6 +57,11 @@ export class EventsService {
   async create(
     createEventDto: CreateEventDto,
   ) {
+    const eventDate =
+      this.validateEventDate(
+        createEventDto.date,
+      );
+
     const slug = this.createSlug(
       createEventDto.title,
     );
@@ -73,9 +81,7 @@ export class EventsService {
       data: {
         ...createEventDto,
         slug,
-        date: new Date(
-          createEventDto.date,
-        ),
+        date: eventDate,
       },
     });
   }
@@ -185,15 +191,20 @@ export class EventsService {
       }
     }
 
+    const updatedDate =
+      updateEventDto.date !== undefined
+        ? this.validateEventDate(
+            updateEventDto.date,
+          )
+        : undefined;
+
     return this.prisma.event.update({
       where: { id },
       data: {
         ...updateEventDto,
         slug,
-        ...(updateEventDto.date && {
-          date: new Date(
-            updateEventDto.date,
-          ),
+        ...(updatedDate !== undefined && {
+          date: updatedDate,
         }),
       },
     });
@@ -243,20 +254,86 @@ export class EventsService {
       },
     });
   }
-async findOneForAdmin(id: number) {
-  const event =
-    await this.prisma.event.findUnique({
-      where: { id },
-    });
 
-  if (!event) {
-    throw new NotFoundException(
-      "Event not found",
-    );
+  async findOneForAdmin(id: number) {
+    const event =
+      await this.prisma.event.findUnique({
+        where: { id },
+      });
+
+    if (!event) {
+      throw new NotFoundException(
+        "Event not found",
+      );
+    }
+
+    return event;
   }
 
-  return event;
-}
+  private validateEventDate(
+    dateValue: string,
+  ): Date {
+    const eventDate = new Date(dateValue);
+
+    if (
+      Number.isNaN(eventDate.getTime())
+    ) {
+      throw new BadRequestException(
+        "Event date must be a valid date",
+      );
+    }
+
+    const eventDay =
+      this.getDateKeyInFestivalTimeZone(
+        eventDate,
+      );
+
+    const currentDay =
+      this.getDateKeyInFestivalTimeZone(
+        new Date(),
+      );
+
+    if (eventDay < currentDay) {
+      throw new BadRequestException(
+        "Event date cannot be before the current day",
+      );
+    }
+
+    return eventDate;
+  }
+
+  private getDateKeyInFestivalTimeZone(
+    date: Date,
+  ): string {
+    const dateParts =
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: FESTIVAL_TIME_ZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).formatToParts(date);
+
+    const year = dateParts.find(
+      (part) => part.type === "year",
+    )?.value;
+
+    const month = dateParts.find(
+      (part) => part.type === "month",
+    )?.value;
+
+    const day = dateParts.find(
+      (part) => part.type === "day",
+    )?.value;
+
+    if (!year || !month || !day) {
+      throw new BadRequestException(
+        "Event date could not be processed",
+      );
+    }
+
+    return `${year}-${month}-${day}`;
+  }
+
   private createSlug(
     title: string,
   ): string {
