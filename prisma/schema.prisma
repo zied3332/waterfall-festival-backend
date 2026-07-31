@@ -103,31 +103,33 @@ enum TicketProvider {
   EVENTPOP
   OTHER
 }
+
 enum FestivalStatus {
   UPCOMING
   LIVE
   FINISHED
 }
+
 model WebsiteSettings {
   id Int @id @default(1)
 
-  festivalName   String         @default("Waterfall Festival Koh Phangan")
-  tagline        String         @default("Nature. Music. Freedom.")
-  location       String         @default("Koh Phangan, Thailand")
-  venue          String         @default("Waterfall Party Venue")
-  startDate      DateTime?
-  endDate        DateTime?
-  timezone       String         @default("Asia/Bangkok")
-  festivalStatus FestivalStatus @default(UPCOMING)
-  defaultLanguage String        @default("English")
-  websiteUrl     String         @default("")
+  festivalName    String         @default("Waterfall Festival Koh Phangan")
+  tagline         String         @default("Nature. Music. Freedom.")
+  location        String         @default("Koh Phangan, Thailand")
+  venue           String         @default("Waterfall Party Venue")
+  startDate       DateTime?
+  endDate         DateTime?
+  timezone        String         @default("Asia/Bangkok")
+  festivalStatus  FestivalStatus @default(UPCOMING)
+  defaultLanguage String         @default("English")
+  websiteUrl      String         @default("")
 
-  publicEmail      String @default("")
-  supportEmail     String @default("")
-  phoneNumber      String @default("")
-  whatsappNumber   String @default("")
-  address          String @default("")
-  googleMapsUrl    String @default("")
+  publicEmail        String  @default("")
+  supportEmail       String  @default("")
+  phoneNumber        String  @default("")
+  whatsappNumber     String  @default("")
+  address            String  @default("")
+  googleMapsUrl      String  @default("")
   contactFormEnabled Boolean @default(true)
 
   instagramUrl String @default("")
@@ -166,6 +168,7 @@ model WebsiteSettings {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 model User {
   id           Int       @id @default(autoincrement())
   email        String    @unique
