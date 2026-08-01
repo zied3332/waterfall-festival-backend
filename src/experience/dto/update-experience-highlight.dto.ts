@@ -1,33 +1,7 @@
-import {
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { PartialType } from "@nestjs/swagger";
 
-export class UpdateExperienceHighlightDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(150)
-  title?: string;
+import { CreateExperienceHighlightDto } from "./create-experience-highlight.dto.js";
 
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  icon?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  sortOrder?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isVisible?: boolean;
-}
+export class UpdateExperienceHighlightDto extends PartialType(
+  CreateExperienceHighlightDto,
+) {}
