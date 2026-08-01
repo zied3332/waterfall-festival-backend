@@ -1,40 +1,7 @@
-import {
-  IsBoolean,
-  IsInt,
-  IsOptional,
-  IsString,
-  IsUrl,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { PartialType } from "@nestjs/swagger";
 
-export class UpdateExperienceImageDto {
-  @IsOptional()
-  @IsUrl({
-    require_protocol: true,
-  })
-  imageUrl?: string;
+import { CreateExperienceImageDto } from "./create-experience-image.dto.js";
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(250)
-  altText?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  caption?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  sortOrder?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isFeatured?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  isVisible?: boolean;
-}
+export class UpdateExperienceImageDto extends PartialType(
+  CreateExperienceImageDto,
+) {}
