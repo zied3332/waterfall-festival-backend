@@ -5,7 +5,9 @@ import type {
   AssistantProviderInput,
 } from "./assistant-provider.interface.js";
 
-import type { AssistantProviderResult } from "../assistant.types.js";
+import type {
+  AssistantProviderResult,
+} from "../assistant.types.js";
 
 @Injectable()
 export class HumanFallbackProvider
@@ -20,15 +22,15 @@ export class HumanFallbackProvider
   ): Promise<AssistantProviderResult> {
     return {
       answer:
-        "I'm sorry, but I couldn't confidently answer your question using the available festival information. Please contact the Waterfall Festival team through the Contact page, and a member of the team will be happy to assist you.",
+        "I'm sorry, but I couldn't confidently answer your question using the available festival information. Please use the Contact page so a member of the Waterfall Festival team can help you.",
       handledBy: "HUMAN_FALLBACK",
       intent: "UNKNOWN",
       confidence: 0,
       requiresHumanFollowUp: true,
       suggestions: [
-        "Contact the festival team",
-        "View the FAQ",
-        "Browse upcoming events",
+        "How can I contact the festival team?",
+        "What should I know before attending?",
+        "What upcoming events are available?",
       ],
       sources: [],
     };
