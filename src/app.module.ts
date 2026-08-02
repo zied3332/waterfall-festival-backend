@@ -14,7 +14,7 @@ import { PrismaModule } from "./prisma/prisma.module.js";
 import { SettingsModule } from "./settings/settings.module.js";
 import { TicketsModule } from "./tickets/tickets.module.js";
 import { UsersModule } from "./users/users.module.js";
-
+import { AssistantModule } from "./assistant/assistant.module.js";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -31,6 +31,7 @@ import { UsersModule } from "./users/users.module.js";
     ExperienceModule,
     TicketsModule,
     SettingsModule,
+    AssistantModule,
   ],
   controllers: [
     AppController,
