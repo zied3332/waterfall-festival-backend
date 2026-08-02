@@ -11,6 +11,9 @@ import { AssistantService } from "./assistant.service.js";
 import { AssistantSourceService } from "./assistant-source.service.js";
 import { AssistantSuggestionService } from "./assistant-suggestion.service.js";
 
+import { AssistantConversationService } from "./conversation/assistant-conversation.service.js";
+import { InMemoryConversationStore } from "./conversation/in-memory-conversation.store.js";
+
 import { HumanFallbackProvider } from "./providers/human-fallback.provider.js";
 import { RuleBasedProvider } from "./providers/rule-based.provider.js";
 
@@ -29,6 +32,8 @@ import { RuleBasedProvider } from "./providers/rule-based.provider.js";
     AssistantResponseBuilder,
     AssistantSuggestionService,
     AssistantSourceService,
+    AssistantConversationService,
+    InMemoryConversationStore,
     RuleBasedProvider,
     HumanFallbackProvider,
   ],
