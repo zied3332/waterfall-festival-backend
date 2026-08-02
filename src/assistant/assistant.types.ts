@@ -25,8 +25,7 @@ export type AssistantSource = {
   label: string;
   url?: string;
 };
-
-export type AssistantResult = {
+export type AssistantProviderResult = {
   answer: string;
   handledBy: AssistantHandler;
   intent: AssistantIntent;
@@ -35,6 +34,11 @@ export type AssistantResult = {
   suggestions: string[];
   sources: AssistantSource[];
 };
+
+export type AssistantResult =
+  AssistantProviderResult & {
+    conversationId: string;
+  };
 
 export type AssistantContextEvent = {
   id: number;

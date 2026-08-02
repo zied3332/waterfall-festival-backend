@@ -9,7 +9,7 @@ import type {
   AssistantContextFaq,
   AssistantContextTicket,
   AssistantIntent,
-  AssistantResult,
+  AssistantProviderResult,
   AssistantSource,
   RetrievedAssistantContext,
 } from "../assistant.types.js";
@@ -51,7 +51,7 @@ export class RuleBasedProvider
 
   async generateResponse(
     input: AssistantProviderInput,
-  ): Promise<AssistantResult> {
+  ): Promise<AssistantProviderResult> {
     const generatedAnswer =
       this.generateForIntent(
         input.intent,

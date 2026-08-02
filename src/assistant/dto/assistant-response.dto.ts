@@ -100,6 +100,14 @@ export class AssistantResponseDto {
   requiresHumanFollowUp!: boolean;
 
   @ApiProperty({
+    example:
+      "0a7d8dc3-bd7a-4725-a76f-8d98fd1d02fb",
+    description:
+      "Conversation identifier. The frontend should send this value back with every future assistant request so the conversation context is preserved.",
+  })
+  conversationId!: string;
+
+  @ApiProperty({
     example: [
       "Show ticket benefits",
       "When does the sale end?",

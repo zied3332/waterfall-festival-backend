@@ -8,6 +8,7 @@ import { AssistantIntentService } from "./assistant-intent.service.js";
 
 import type {
   AssistantIntent,
+  AssistantProviderResult,
   AssistantResult,
   RetrievedAssistantContext,
 } from "./assistant.types.js";
@@ -117,11 +118,16 @@ export class AssistantService {
         providerInput,
       );
 
-    const finalResult =
+    const providerResult =
       ruleBasedResult ??
       (await this.generateFallbackResponse(
         providerInput,
       ));
+
+    const finalResult: AssistantResult = {
+      ...providerResult,
+      conversationId,
+    };
 
     this.conversationService.addAssistantMessage(
       conversationId,
@@ -194,18 +200,17 @@ export class AssistantService {
       return true;
     }
 
-    const wordCount =
-      normalizedMessage
-        .split(/\s+/)
-        .filter(Boolean)
-        .length;
+    const wordCount = normalizedMessage
+      .split(/\s+/)
+      .filter(Boolean)
+      .length;
 
     return wordCount <= 5;
   }
 
   private async tryRuleBasedProvider(
     input: AssistantProviderInput,
-  ): Promise<AssistantResult | null> {
+  ): Promise<AssistantProviderResult | null> {
     if (
       !this.ruleBasedProvider.canHandle(
         input,
@@ -243,7 +248,7 @@ export class AssistantService {
 
   private async generateFallbackResponse(
     input: AssistantProviderInput,
-  ): Promise<AssistantResult> {
+  ): Promise<AssistantProviderResult> {
     const fallbackResult =
       await this.humanFallbackProvider.generateResponse(
         input,
@@ -256,7 +261,7 @@ export class AssistantService {
   }
 
   private isReliableRuleBasedResult(
-    result: AssistantResult,
+    result: AssistantProviderResult,
   ): boolean {
     return (
       result.answer.trim().length > 0 &&

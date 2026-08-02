@@ -1,6 +1,6 @@
 import type {
   AssistantIntent,
-  AssistantResult,
+  AssistantProviderResult,
   RetrievedAssistantContext,
 } from "../assistant.types.js";
 
@@ -18,5 +18,5 @@ export interface AssistantProvider {
 
   generateResponse(
     input: AssistantProviderInput,
-  ): Promise<AssistantResult>;
+  ): Promise<AssistantProviderResult>;
 }
