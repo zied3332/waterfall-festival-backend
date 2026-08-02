@@ -32,9 +32,7 @@ export class AssistantSuggestionService {
         );
 
       case "VENUE":
-        return this.buildVenueSuggestions(
-          context,
-        );
+        return this.buildVenueSuggestions();
 
       case "CONTACT":
         return this.buildContactSuggestions();
@@ -60,21 +58,23 @@ export class AssistantSuggestionService {
     context: RetrievedAssistantContext,
   ): string[] {
     const suggestions = [
-      "Show available tickets",
+      "Which tickets are available?",
       "Where is the venue?",
     ];
 
     if (context.events.length > 1) {
       suggestions.push(
-        "Show all upcoming events",
+        "What other upcoming events are available?",
       );
     } else {
       suggestions.push(
-        "Open the event page",
+        "Tell me more about this event",
       );
     }
 
-    return suggestions;
+    return this.limitSuggestions(
+      suggestions,
+    );
   }
 
   private buildTicketSuggestions(
@@ -88,20 +88,16 @@ export class AssistantSuggestionService {
 
     const hasVipTicket = tickets.some(
       (ticket) =>
-        this.normalizeText(
-          `${ticket.name} ${ticket.description ?? ""}`,
+        this.createTicketSearchText(
+          ticket,
         ).includes("vip"),
     );
 
     const hasGroupTicket = tickets.some(
       (ticket) => {
         const searchableText =
-          this.normalizeText(
-            `${ticket.name} ${
-              ticket.shortDescription ?? ""
-            } ${
-              ticket.description ?? ""
-            } ${ticket.benefits.join(" ")}`,
+          this.createTicketSearchText(
+            ticket,
           );
 
         return (
@@ -125,7 +121,7 @@ export class AssistantSuggestionService {
       !normalizedMessage.includes("vip")
     ) {
       suggestions.push(
-        "Show me VIP tickets",
+        "Which VIP tickets are available?",
       );
     }
 
@@ -139,14 +135,20 @@ export class AssistantSuggestionService {
       );
     }
 
-    if (hasAvailableTicket) {
+    if (
+      hasAvailableTicket &&
+      !normalizedMessage.includes("cheap") &&
+      !normalizedMessage.includes(
+        "cheapest",
+      )
+    ) {
       suggestions.push(
         "Which ticket is the cheapest?",
       );
     }
 
     suggestions.push(
-      "Open the ticket page",
+      "What benefits are included with the tickets?",
     );
 
     return this.limitSuggestions(
@@ -154,50 +156,35 @@ export class AssistantSuggestionService {
     );
   }
 
-  private buildVenueSuggestions(
-    context: RetrievedAssistantContext,
-  ): string[] {
-    const suggestions = [
+  private buildVenueSuggestions(): string[] {
+    return [
       "Is parking available?",
-      "How can I contact the festival?",
+      "How do I get to the venue?",
+      "How can I contact the festival team?",
     ];
-
-    if (
-      context.settings?.googleMapsUrl
-    ) {
-      suggestions.unshift(
-        "Open Google Maps",
-      );
-    } else {
-      suggestions.unshift(
-        "View the venue page",
-      );
-    }
-
-    return suggestions;
   }
 
   private buildContactSuggestions(): string[] {
     return [
-      "Open the contact page",
+      "What upcoming events are available?",
       "Where is the venue?",
-      "View the FAQ",
+      "What should I know before attending?",
     ];
   }
 
   private buildFaqSuggestions(): string[] {
     return [
-      "View more questions",
-      "Contact the festival team",
-      "Ask about the venue",
+      "What should I bring?",
+      "What items are prohibited?",
+      "How can I contact the festival team?",
     ];
   }
 
   private buildExperienceSuggestions(): string[] {
     return [
-      "Explore the experience page",
-      "Show upcoming events",
-      "Show available tickets",
+      "What can I expect at the festival?",
+      "What upcoming events are available?",
+      "Which tickets are available?",
     ];
   }
 
@@ -208,7 +195,7 @@ export class AssistantSuggestionService {
 
     if (context.events.length > 0) {
       suggestions.push(
-        "What events are coming up?",
+        "What upcoming events are available?",
       );
     }
 
@@ -230,6 +217,12 @@ export class AssistantSuggestionService {
       );
     }
 
+    if (context.experience) {
+      suggestions.push(
+        "What can I expect at the festival?",
+      );
+    }
+
     return this.limitSuggestions(
       suggestions.length > 0
         ? suggestions
@@ -239,10 +232,23 @@ export class AssistantSuggestionService {
 
   private buildFallbackSuggestions(): string[] {
     return [
-      "Contact the festival team",
-      "View the FAQ",
-      "Browse upcoming events",
+      "How can I contact the festival team?",
+      "What should I know before attending?",
+      "What upcoming events are available?",
     ];
+  }
+
+  private createTicketSearchText(
+    ticket: AssistantContextTicket,
+  ): string {
+    return this.normalizeText(
+      [
+        ticket.name,
+        ticket.shortDescription ?? "",
+        ticket.description ?? "",
+        ...ticket.benefits,
+      ].join(" "),
+    );
   }
 
   private limitSuggestions(
