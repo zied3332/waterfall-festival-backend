@@ -1,5 +1,9 @@
 import { Injectable } from "@nestjs/common";
 
+import { AssistantResponseBuilder } from "../assistant-response.builder.js";
+import { AssistantSourceService } from "../assistant-source.service.js";
+import { AssistantSuggestionService } from "../assistant-suggestion.service.js";
+
 import type {
   AssistantContextEvent,
   AssistantContextFaq,
@@ -18,22 +22,24 @@ import type {
 type GeneratedAnswer = {
   answer: string;
   confidence: number;
-  suggestions: string[];
   sources: AssistantSource[];
 };
-
-const MONTH_DATE_FORMATTER =
-  new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
 
 @Injectable()
 export class RuleBasedProvider
   implements AssistantProvider
 {
+  constructor(
+    private readonly responseBuilder:
+      AssistantResponseBuilder,
+
+    private readonly suggestionService:
+      AssistantSuggestionService,
+
+    private readonly sourceService:
+      AssistantSourceService,
+  ) {}
+
   canHandle(
     input: AssistantProviderInput,
   ): boolean {
@@ -65,15 +71,25 @@ export class RuleBasedProvider
       };
     }
 
+    const suggestions =
+      this.suggestionService.buildSuggestions({
+        intent: input.intent,
+        context: input.context,
+        message: input.message,
+      });
+
     return {
       answer: generatedAnswer.answer,
       handledBy: "RULE_BASED",
       intent: input.intent,
-      confidence: generatedAnswer.confidence,
+      confidence:
+        generatedAnswer.confidence,
       requiresHumanFollowUp: false,
-      suggestions:
-        generatedAnswer.suggestions,
-      sources: generatedAnswer.sources,
+      suggestions,
+      sources:
+        this.sourceService.limitSources(
+          generatedAnswer.sources,
+        ),
     };
   }
 
@@ -128,11 +144,13 @@ export class RuleBasedProvider
       case "TICKETS":
         return this.generateTicketAnswer(
           message,
-          context.tickets,
+          context,
         );
 
       case "VENUE":
-        return this.generateVenueAnswer(context);
+        return this.generateVenueAnswer(
+          context,
+        );
 
       case "CONTACT":
         return this.generateContactAnswer(
@@ -183,52 +201,41 @@ export class RuleBasedProvider
         ),
     );
 
-    const event =
+    const selectedEvent =
       matchingEvent ??
       this.getNextEvent(events);
 
-    if (!event) {
+    if (!selectedEvent) {
       return null;
     }
 
-    const formattedDate =
-      this.formatDate(event.date);
-
-    const description =
-      event.description.trim();
-
-    const answerParts = [
-      `The next available event is ${event.title}.`,
-      `It is scheduled for ${formattedDate} at ${event.location}.`,
-    ];
-
-    if (description) {
-      answerParts.push(description);
-    }
+    const builtResponse =
+      this.responseBuilder.buildEventResponse(
+        selectedEvent,
+        {
+          isExactMatch:
+            matchingEvent !== undefined,
+        },
+      );
 
     return {
-      answer: answerParts.join(" "),
-      confidence: matchingEvent ? 0.97 : 0.92,
-      suggestions: [
-        "Show available tickets",
-        "Where is the venue?",
-        "Open the event page",
-      ],
+      answer: builtResponse.answer,
+      confidence:
+        builtResponse.confidence,
       sources: [
-        {
-          type: "EVENT",
-          id: event.id,
-          label: event.title,
-          url: `/events/${event.slug}`,
-        },
+        this.sourceService.buildEventSource(
+          selectedEvent,
+        ),
       ],
     };
   }
 
   private generateTicketAnswer(
     message: string,
-    tickets: AssistantContextTicket[],
+    context: RetrievedAssistantContext,
   ): GeneratedAnswer | null {
+    const { tickets } = context;
+
     if (tickets.length === 0) {
       return null;
     }
@@ -243,9 +250,21 @@ export class RuleBasedProvider
       );
 
     if (matchingTicket) {
-      return this.describeTicket(
-        matchingTicket,
-      );
+      const builtResponse =
+        this.responseBuilder.buildTicketResponse(
+          matchingTicket,
+        );
+
+      return {
+        answer: builtResponse.answer,
+        confidence:
+          builtResponse.confidence,
+        sources: [
+          this.sourceService.buildTicketSource(
+            matchingTicket,
+          ),
+        ],
+      };
     }
 
     const availableTickets =
@@ -262,110 +281,19 @@ export class RuleBasedProvider
       return null;
     }
 
-    const ticketSummary = ticketsToDisplay
-      .map(
-        (ticket) =>
-          `${ticket.name} for ${this.formatPrice(
-            ticket.price,
-            ticket.currency,
-          )}`,
-      )
-      .join(", ");
+    const builtResponse =
+      this.responseBuilder.buildTicketListResponse(
+        ticketsToDisplay,
+      );
 
     return {
-      answer:
-        `The currently listed ticket options include ${ticketSummary}. ` +
-        "Choose a ticket based on the benefits, group size, and availability shown on the ticket page.",
-      confidence: 0.88,
-      suggestions: [
-        "Show me VIP tickets",
-        "Which ticket is best for a group?",
-        "Open the ticket page",
-      ],
-      sources: ticketsToDisplay.map(
-        (ticket) => ({
-          type: "TICKET",
-          id: ticket.id,
-          label: ticket.name,
-          url: `/tickets#${ticket.slug}`,
-        }),
-      ),
-    };
-  }
-
-  private describeTicket(
-    ticket: AssistantContextTicket,
-  ): GeneratedAnswer {
-    const answerParts = [
-      `${ticket.name} costs ${this.formatPrice(
-        ticket.price,
-        ticket.currency,
-      )}.`,
-    ];
-
-    if (
-      ticket.originalPrice !== null &&
-      ticket.originalPrice > ticket.price
-    ) {
-      answerParts.push(
-        `The original price was ${this.formatPrice(
-          ticket.originalPrice,
-          ticket.currency,
-        )}.`,
-      );
-    }
-
-    const description =
-      ticket.shortDescription?.trim() ||
-      ticket.description?.trim();
-
-    if (description) {
-      answerParts.push(description);
-    }
-
-    if (ticket.benefits.length > 0) {
-      answerParts.push(
-        `Benefits include ${ticket.benefits
-          .slice(0, 4)
-          .join(", ")}.`,
-      );
-    }
-
-    if (ticket.availabilityLabel) {
-      answerParts.push(
-        ticket.availabilityLabel,
-      );
-    } else if (
-      ticket.remainingQuantity !== null
-    ) {
-      answerParts.push(
-        `${ticket.remainingQuantity} tickets are currently recorded as remaining.`,
-      );
-    }
-
-    if (ticket.externalPurchaseUrl) {
-      answerParts.push(
-        "You can use the official ticket link to continue with the purchase.",
-      );
-    }
-
-    return {
-      answer: answerParts.join(" "),
-      confidence: 0.97,
-      suggestions: [
-        "Show ticket benefits",
-        "Show other tickets",
-        "Open the ticket page",
-      ],
-      sources: [
-        {
-          type: "TICKET",
-          id: ticket.id,
-          label: ticket.name,
-          url: ticket.externalPurchaseUrl ??
-            `/tickets#${ticket.slug}`,
-        },
-      ],
+      answer: builtResponse.answer,
+      confidence:
+        builtResponse.confidence,
+      sources:
+        this.sourceService.buildTicketSources(
+          ticketsToDisplay,
+        ),
     };
   }
 
@@ -378,51 +306,19 @@ export class RuleBasedProvider
       return null;
     }
 
-    const venue =
-      settings.venue?.trim();
-
-    const location =
-      settings.location?.trim();
-
-    const address =
-      settings.address?.trim();
-
-    const place =
-      address ||
-      [venue, location]
-        .filter(Boolean)
-        .join(", ");
-
-    if (!place) {
-      return null;
-    }
-
-    const answerParts = [
-      `${settings.festivalName} is located at ${place}.`,
-    ];
-
-    if (settings.googleMapsUrl) {
-      answerParts.push(
-        "You can open the official map link for directions.",
+    const builtResponse =
+      this.responseBuilder.buildVenueResponse(
+        settings,
       );
-    }
 
     return {
-      answer: answerParts.join(" "),
-      confidence: 0.96,
-      suggestions: [
-        "Open Google Maps",
-        "Is parking available?",
-        "How can I contact the festival?",
-      ],
+      answer: builtResponse.answer,
+      confidence:
+        builtResponse.confidence,
       sources: [
-        {
-          type: "SETTINGS",
-          label: `${settings.festivalName} venue`,
-          url:
-            settings.googleMapsUrl ??
-            "/venue",
-        },
+        this.sourceService.buildVenueSource(
+          settings,
+        ),
       ],
     };
   }
@@ -436,68 +332,19 @@ export class RuleBasedProvider
       return null;
     }
 
-    const email =
-      settings.supportEmail?.trim() ||
-      settings.publicEmail?.trim();
-
-    const phone =
-      settings.phoneNumber?.trim();
-
-    const whatsapp =
-      settings.whatsappNumber?.trim();
-
-    const contactParts: string[] = [];
-
-    if (email) {
-      contactParts.push(`email at ${email}`);
-    }
-
-    if (phone) {
-      contactParts.push(`phone at ${phone}`);
-    }
-
-    if (whatsapp) {
-      contactParts.push(
-        `WhatsApp at ${whatsapp}`,
+    const builtResponse =
+      this.responseBuilder.buildContactResponse(
+        settings,
       );
-    }
-
-    if (contactParts.length === 0) {
-      return {
-        answer:
-          "Please use the Contact page to send your question to the festival team.",
-        confidence: 0.9,
-        suggestions: [
-          "Open the contact page",
-          "View the FAQ",
-        ],
-        sources: [
-          {
-            type: "SETTINGS",
-            label: "Festival contact page",
-            url: "/contact",
-          },
-        ],
-      };
-    }
 
     return {
-      answer:
-        `You can contact the ${settings.festivalName} team by ` +
-        `${this.joinNaturalLanguage(contactParts)}. ` +
-        "You can also use the Contact page to send a message.",
-      confidence: 0.98,
-      suggestions: [
-        "Open the contact page",
-        "Where is the venue?",
-        "View the FAQ",
-      ],
+      answer: builtResponse.answer,
+      confidence:
+        builtResponse.confidence,
       sources: [
-        {
-          type: "SETTINGS",
-          label: `${settings.festivalName} contact information`,
-          url: "/contact",
-        },
+        this.sourceService.buildContactSource(
+          settings,
+        ),
       ],
     };
   }
@@ -510,28 +357,29 @@ export class RuleBasedProvider
       return null;
     }
 
-    const matchedFaq =
-      this.findBestFaqMatch(message, faqs);
+    const matchingFaq =
+      this.findBestFaqMatch(
+        message,
+        faqs,
+      );
 
-    if (!matchedFaq) {
+    if (!matchingFaq) {
       return null;
     }
 
+    const builtResponse =
+      this.responseBuilder.buildFaqResponse(
+        matchingFaq,
+      );
+
     return {
-      answer: matchedFaq.answer,
-      confidence: 0.93,
-      suggestions: [
-        "View more questions",
-        "Contact the festival team",
-        "Ask about the venue",
-      ],
+      answer: builtResponse.answer,
+      confidence:
+        builtResponse.confidence,
       sources: [
-        {
-          type: "FAQ",
-          id: matchedFaq.id,
-          label: matchedFaq.question,
-          url: `/faq#faq-${matchedFaq.id}`,
-        },
+        this.sourceService.buildFaqSource(
+          matchingFaq,
+        ),
       ],
     };
   }
@@ -539,46 +387,26 @@ export class RuleBasedProvider
   private generateExperienceAnswer(
     context: RetrievedAssistantContext,
   ): GeneratedAnswer | null {
-    const experience = context.experience;
+    const experience =
+      context.experience;
 
     if (!experience) {
       return null;
     }
 
-    const answerParts = [
-      experience.heroTitle,
-    ];
-
-    if (experience.heroSubtitle) {
-      answerParts.push(
-        experience.heroSubtitle,
+    const builtResponse =
+      this.responseBuilder.buildExperienceResponse(
+        experience,
       );
-    }
-
-    if (experience.heroDescription) {
-      answerParts.push(
-        experience.heroDescription,
-      );
-    } else {
-      answerParts.push(
-        experience.storyDescription,
-      );
-    }
 
     return {
-      answer: answerParts.join(" "),
-      confidence: 0.93,
-      suggestions: [
-        "Explore the experience page",
-        "Show upcoming events",
-        "Show available tickets",
-      ],
+      answer: builtResponse.answer,
+      confidence:
+        builtResponse.confidence,
       sources: [
-        {
-          type: "EXPERIENCE",
-          label: experience.storyTitle,
-          url: "/experience",
-        },
+        this.sourceService.buildExperienceSource(
+          experience,
+        ),
       ],
     };
   }
@@ -597,27 +425,23 @@ export class RuleBasedProvider
       return faqAnswer;
     }
 
-    const settings = context.settings;
-
-    if (!settings) {
+    if (!context.settings) {
       return null;
     }
 
+    const builtResponse =
+      this.responseBuilder.buildGeneralResponse(
+        context.settings,
+      );
+
     return {
-      answer:
-        `I can help you with ${settings.festivalName} events, tickets, venue information, FAQs, contact details, and the festival experience.`,
-      confidence: 0.75,
-      suggestions: [
-        "What events are coming up?",
-        "Which tickets are available?",
-        "Where is the venue?",
-      ],
+      answer: builtResponse.answer,
+      confidence:
+        builtResponse.confidence,
       sources: [
-        {
-          type: "SETTINGS",
-          label: settings.festivalName,
-          url: "/",
-        },
+        this.sourceService.buildSettingsSource(
+          context.settings,
+        ),
       ],
     };
   }
@@ -642,32 +466,50 @@ export class RuleBasedProvider
 
     if (
       normalizedMessage.includes("vip") ||
-      normalizedMessage.includes("premium")
+      normalizedMessage.includes(
+        "premium",
+      )
     ) {
-      return tickets.find((ticket) =>
-        this.normalizeText(ticket.name)
-          .includes("vip"),
-      );
+      return tickets.find((ticket) => {
+        const searchableText =
+          this.createTicketSearchText(
+            ticket,
+          );
+
+        return (
+          searchableText.includes("vip") ||
+          searchableText.includes(
+            "premium",
+          )
+        );
+      });
     }
 
     if (
       normalizedMessage.includes("group") ||
-      normalizedMessage.includes("friends") ||
+      normalizedMessage.includes(
+        "friends",
+      ) ||
       normalizedMessage.includes("five") ||
-      normalizedMessage.includes("5 people")
+      normalizedMessage.includes(
+        "5 people",
+      )
     ) {
       return tickets.find((ticket) => {
         const searchableText =
-          this.normalizeText(
-            `${ticket.name} ${ticket.shortDescription ?? ""} ${
-              ticket.description ?? ""
-            } ${ticket.benefits.join(" ")}`,
+          this.createTicketSearchText(
+            ticket,
           );
 
         return (
           searchableText.includes("group") ||
-          searchableText.includes("friends") ||
-          searchableText.includes("five")
+          searchableText.includes(
+            "friends",
+          ) ||
+          searchableText.includes("five") ||
+          searchableText.includes(
+            "5 people",
+          )
         );
       });
     }
@@ -679,6 +521,9 @@ export class RuleBasedProvider
       ) ||
       normalizedMessage.includes(
         "lowest price",
+      ) ||
+      normalizedMessage.includes(
+        "least expensive",
       )
     ) {
       return [...tickets]
@@ -686,13 +531,30 @@ export class RuleBasedProvider
           this.isTicketAvailable(ticket),
         )
         .sort(
-          (firstTicket, secondTicket) =>
+          (
+            firstTicket,
+            secondTicket,
+          ) =>
             firstTicket.price -
             secondTicket.price,
         )[0];
     }
 
     return undefined;
+  }
+
+  private createTicketSearchText(
+    ticket: AssistantContextTicket,
+  ): string {
+    return this.normalizeText(
+      [
+        ticket.name,
+        ticket.slug,
+        ticket.shortDescription ?? "",
+        ticket.description ?? "",
+        ...ticket.benefits,
+      ].join(" "),
+    );
   }
 
   private findBestFaqMatch(
@@ -706,37 +568,81 @@ export class RuleBasedProvider
       return null;
     }
 
-    let bestFaq: AssistantContextFaq | null =
-      null;
+    let bestFaq:
+      | AssistantContextFaq
+      | null = null;
 
     let bestScore = 0;
 
     for (const faq of faqs) {
-      const searchableWords =
+      const questionWords =
         this.extractMeaningfulWords(
-          `${faq.question} ${faq.category ?? ""}`,
+          faq.question,
         );
 
-      const score = messageWords.reduce(
-        (total, word) =>
-          searchableWords.includes(word)
-            ? total + 1
-            : total,
-        0,
-      );
+      const categoryWords =
+        this.extractMeaningfulWords(
+          faq.category ?? "",
+        );
 
-      if (score > bestScore) {
-        bestScore = score;
+      const answerWords =
+        this.extractMeaningfulWords(
+          faq.answer,
+        );
+
+      const questionScore =
+        this.countMatchingWords(
+          messageWords,
+          questionWords,
+        ) * 3;
+
+      const categoryScore =
+        this.countMatchingWords(
+          messageWords,
+          categoryWords,
+        ) * 2;
+
+      const answerScore =
+        this.countMatchingWords(
+          messageWords,
+          answerWords,
+        );
+
+      const totalScore =
+        questionScore +
+        categoryScore +
+        answerScore;
+
+      if (totalScore > bestScore) {
+        bestScore = totalScore;
         bestFaq = faq;
       }
     }
 
     const minimumScore =
-      messageWords.length <= 3 ? 1 : 2;
+      messageWords.length <= 3
+        ? 2
+        : 3;
 
     return bestScore >= minimumScore
       ? bestFaq
       : null;
+  }
+
+  private countMatchingWords(
+    sourceWords: string[],
+    searchableWords: string[],
+  ): number {
+    const searchableWordSet =
+      new Set(searchableWords);
+
+    return sourceWords.reduce(
+      (total, word) =>
+        searchableWordSet.has(word)
+          ? total + 1
+          : total,
+      0,
+    );
   }
 
   private getNextEvent(
@@ -756,17 +662,34 @@ export class RuleBasedProvider
         );
       })
       .sort(
-        (firstEvent, secondEvent) =>
-          new Date(firstEvent.date).getTime() -
-          new Date(secondEvent.date).getTime(),
+        (
+          firstEvent,
+          secondEvent,
+        ) =>
+          new Date(
+            firstEvent.date,
+          ).getTime() -
+          new Date(
+            secondEvent.date,
+          ).getTime(),
       );
 
-    return futureEvents[0] ?? events[0] ?? null;
+    return (
+      futureEvents[0] ??
+      events[0] ??
+      null
+    );
   }
 
   private isTicketAvailable(
     ticket: AssistantContextTicket,
   ): boolean {
+    if (
+      ticket.remainingQuantity === 0
+    ) {
+      return false;
+    }
+
     return [
       "AVAILABLE",
       "LIMITED",
@@ -774,35 +697,15 @@ export class RuleBasedProvider
     ].includes(ticket.status);
   }
 
-  private formatDate(value: string): string {
-    const date = new Date(value);
-
-    if (Number.isNaN(date.getTime())) {
-      return value;
-    }
-
-    return MONTH_DATE_FORMATTER.format(date);
-  }
-
-  private formatPrice(
-    price: number,
-    currency: string,
+  private normalizeText(
+    value: string,
   ): string {
-    try {
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency,
-        maximumFractionDigits: 2,
-      }).format(price);
-    } catch {
-      return `${price} ${currency}`;
-    }
-  }
-
-  private normalizeText(value: string): string {
     return value
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
+      .replace(
+        /[\u0300-\u036f]/g,
+        "",
+      )
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, " ")
       .replace(/\s+/g, " ")
@@ -814,18 +717,23 @@ export class RuleBasedProvider
   ): string[] {
     const ignoredWords = new Set([
       "a",
+      "about",
       "an",
       "and",
       "are",
       "can",
+      "could",
       "do",
       "for",
       "how",
       "i",
+      "in",
       "is",
       "it",
+      "me",
       "of",
       "on",
+      "please",
       "the",
       "to",
       "what",
@@ -836,30 +744,16 @@ export class RuleBasedProvider
       "you",
     ]);
 
-    return this.normalizeText(value)
-      .split(" ")
-      .filter(
-        (word) =>
-          word.length > 1 &&
-          !ignoredWords.has(word),
-      );
-  }
-
-  private joinNaturalLanguage(
-    values: string[],
-  ): string {
-    if (values.length === 1) {
-      return values[0];
-    }
-
-    if (values.length === 2) {
-      return `${values[0]} or ${values[1]}`;
-    }
-
-    return `${values
-      .slice(0, -1)
-      .join(", ")}, or ${
-      values.at(-1) ?? ""
-    }`;
+    return [
+      ...new Set(
+        this.normalizeText(value)
+          .split(" ")
+          .filter(
+            (word) =>
+              word.length > 1 &&
+              !ignoredWords.has(word),
+          ),
+      ),
+    ];
   }
 }
