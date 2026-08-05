@@ -16,9 +16,13 @@ async function bootstrap(): Promise<void> {
   const configService =
     app.get(ConfigService);
 
-  app.enableCors({
-    origin: 'http://localhost:5173',
-  });
+app.enableCors({
+  origin: [
+    "http://localhost:5173",
+    "http://192.168.1.147:5173",
+  ],
+  credentials: true,
+});
 
   app.useGlobalPipes(
     new ValidationPipe({
