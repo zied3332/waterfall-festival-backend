@@ -16,11 +16,45 @@ async function bootstrap(): Promise<void> {
   const configService =
     app.get(ConfigService);
 
+  const configuredOrigins =
+    configService
+      .get<string>('CORS_ORIGINS')
+      ?.split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean) ?? [];
+
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://192.168.1.147:5173',
+    ...configuredOrigins,
+  ];
+
   app.enableCors({
-    origin: [
-      'http://localhost:5173',
-      'http://192.168.1.147:5173',
-    ],
+    origin: (
+      origin,
+      callback,
+    ) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (
+        allowedOrigins.includes(
+          origin,
+        )
+      ) {
+        callback(null, true);
+        return;
+      }
+
+      callback(
+        new Error(
+          `Origin ${origin} is not allowed by CORS`,
+        ),
+        false,
+      );
+    },
     credentials: true,
   });
 
@@ -33,8 +67,9 @@ async function bootstrap(): Promise<void> {
   );
 
   const port = Number(
-    configService.get<string>('PORT') ??
-      3000,
+    configService.get<string>(
+      'PORT',
+    ) ?? 3000,
   );
 
   const swaggerConfig =
@@ -91,7 +126,11 @@ async function bootstrap(): Promise<void> {
   );
 
   console.log(
-    `Swagger documentation available at /api/docs`,
+    'Swagger documentation available at /api/docs',
+  );
+
+  console.log(
+    `Allowed CORS origins: ${allowedOrigins.join(', ')}`,
   );
 }
 
