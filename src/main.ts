@@ -5,6 +5,7 @@ import {
   DocumentBuilder,
   SwaggerModule,
 } from '@nestjs/swagger';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface.js';
 
 import { AppModule } from './app.module.js';
 
@@ -29,10 +30,13 @@ async function bootstrap(): Promise<void> {
     ...configuredOrigins,
   ];
 
-  app.enableCors({
+  const corsOptions: CorsOptions = {
     origin: (
-      origin,
-      callback,
+      origin: string | undefined,
+      callback: (
+        error: Error | null,
+        allow?: boolean,
+      ) => void,
     ) => {
       if (!origin) {
         callback(null, true);
@@ -56,7 +60,9 @@ async function bootstrap(): Promise<void> {
       );
     },
     credentials: true,
-  });
+  };
+
+  app.enableCors(corsOptions);
 
   app.useGlobalPipes(
     new ValidationPipe({
