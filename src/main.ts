@@ -16,13 +16,13 @@ async function bootstrap(): Promise<void> {
   const configService =
     app.get(ConfigService);
 
-app.enableCors({
-  origin: [
-    "http://localhost:5173",
-    "http://192.168.1.147:5173",
-  ],
-  credentials: true,
-});
+  app.enableCors({
+    origin: [
+      'http://localhost:5173',
+      'http://192.168.1.147:5173',
+    ],
+    credentials: true,
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -32,9 +32,10 @@ app.enableCors({
     }),
   );
 
-  const port =
-    configService.get<number>('PORT') ??
-    3000;
+  const port = Number(
+    configService.get<string>('PORT') ??
+      3000,
+  );
 
   const swaggerConfig =
     new DocumentBuilder()
@@ -80,14 +81,17 @@ app.enableCors({
     },
   );
 
-  await app.listen(port);
-
-  console.log(
-    `Waterfall Festival API running on http://localhost:${port}`,
+  await app.listen(
+    port,
+    '0.0.0.0',
   );
 
   console.log(
-    `Swagger documentation available at http://localhost:${port}/api/docs`,
+    `Waterfall Festival API running on port ${port}`,
+  );
+
+  console.log(
+    `Swagger documentation available at /api/docs`,
   );
 }
 
