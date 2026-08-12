@@ -3,6 +3,7 @@ import {
   Injectable,
   InternalServerErrorException,
 } from "@nestjs/common";
+
 import {
   v2 as Cloudinary,
   type UploadApiResponse,
@@ -10,11 +11,18 @@ import {
 
 const CLOUDINARY_PROVIDER = "CLOUDINARY";
 
-const GALLERY_FOLDER =
-  "waterfall-festival/gallery";
+const GALLERY_IMAGES_FOLDER =
+  "waterfall-festival/gallery/images";
+
+const GALLERY_VIDEOS_FOLDER =
+  "waterfall-festival/gallery/videos";
 
 const EVENT_IMAGES_FOLDER =
   "waterfall-festival/events";
+
+type CloudinaryResourceType =
+  | "image"
+  | "video";
 
 @Injectable()
 export class CloudinaryService {
@@ -26,6 +34,7 @@ export class CloudinaryService {
   private uploadBuffer(
     file: Express.Multer.File,
     folder: string,
+    resourceType: CloudinaryResourceType,
   ): Promise<UploadApiResponse> {
     return new Promise<UploadApiResponse>(
       (resolve, reject) => {
@@ -33,7 +42,7 @@ export class CloudinaryService {
           this.cloudinary.uploader.upload_stream(
             {
               folder,
-              resource_type: "image",
+              resource_type: resourceType,
             },
             (error, result) => {
               if (error) {
@@ -59,6 +68,35 @@ export class CloudinaryService {
     );
   }
 
+  private async deleteResource(
+    publicId: string,
+    resourceType: CloudinaryResourceType,
+  ): Promise<void> {
+    try {
+      const result =
+        await this.cloudinary.uploader.destroy(
+          publicId,
+          {
+            resource_type: resourceType,
+            invalidate: true,
+          },
+        );
+
+      if (
+        result.result !== "ok" &&
+        result.result !== "not found"
+      ) {
+        throw new Error(
+          `Cloudinary deletion failed with result: ${result.result}`,
+        );
+      }
+    } catch {
+      throw new InternalServerErrorException(
+        `Failed to delete the ${resourceType} from Cloudinary.`,
+      );
+    }
+  }
+
   async uploadImage(
     file: Express.Multer.File,
   ): Promise<UploadApiResponse> {
@@ -77,7 +115,8 @@ export class CloudinaryService {
     try {
       return await this.uploadBuffer(
         file,
-        GALLERY_FOLDER,
+        GALLERY_IMAGES_FOLDER,
+        "image",
       );
     } catch {
       throw new InternalServerErrorException(
@@ -94,13 +133,50 @@ export class CloudinaryService {
         files.map((file) =>
           this.uploadBuffer(
             file,
-            GALLERY_FOLDER,
+            GALLERY_IMAGES_FOLDER,
+            "image",
           ),
         ),
       );
     } catch {
       throw new InternalServerErrorException(
         "Failed to upload one or more gallery images to Cloudinary.",
+      );
+    }
+  }
+
+  async uploadGalleryVideo(
+    file: Express.Multer.File,
+  ): Promise<UploadApiResponse> {
+    try {
+      return await this.uploadBuffer(
+        file,
+        GALLERY_VIDEOS_FOLDER,
+        "video",
+      );
+    } catch {
+      throw new InternalServerErrorException(
+        "Failed to upload the gallery video to Cloudinary.",
+      );
+    }
+  }
+
+  async uploadGalleryVideos(
+    files: Express.Multer.File[],
+  ): Promise<UploadApiResponse[]> {
+    try {
+      return await Promise.all(
+        files.map((file) =>
+          this.uploadBuffer(
+            file,
+            GALLERY_VIDEOS_FOLDER,
+            "video",
+          ),
+        ),
+      );
+    } catch {
+      throw new InternalServerErrorException(
+        "Failed to upload one or more gallery videos to Cloudinary.",
       );
     }
   }
@@ -112,6 +188,7 @@ export class CloudinaryService {
       return await this.uploadBuffer(
         file,
         EVENT_IMAGES_FOLDER,
+        "image",
       );
     } catch {
       throw new InternalServerErrorException(
@@ -123,28 +200,18 @@ export class CloudinaryService {
   async deleteImage(
     publicId: string,
   ): Promise<void> {
-    try {
-      const result =
-        await this.cloudinary.uploader.destroy(
-          publicId,
-          {
-            resource_type: "image",
-            invalidate: true,
-          },
-        );
+    await this.deleteResource(
+      publicId,
+      "image",
+    );
+  }
 
-      if (
-        result.result !== "ok" &&
-        result.result !== "not found"
-      ) {
-        throw new Error(
-          `Cloudinary deletion failed with result: ${result.result}`,
-        );
-      }
-    } catch {
-      throw new InternalServerErrorException(
-        "Failed to delete the image from Cloudinary.",
-      );
-    }
+  async deleteVideo(
+    publicId: string,
+  ): Promise<void> {
+    await this.deleteResource(
+      publicId,
+      "video",
+    );
   }
 }
