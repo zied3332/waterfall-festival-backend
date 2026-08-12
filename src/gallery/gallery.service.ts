@@ -3,7 +3,9 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 
+import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
+
 import { CreateGalleryImageDto } from "./dto/create-gallery-image.dto.js";
 import { UpdateGalleryImageDto } from "./dto/update-gallery-image.dto.js";
 
@@ -11,6 +13,7 @@ import { UpdateGalleryImageDto } from "./dto/update-gallery-image.dto.js";
 export class GalleryService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   async findPublished() {
@@ -18,6 +21,7 @@ export class GalleryService {
       where: {
         status: "PUBLISHED",
       },
+
       include: {
         event: {
           select: {
@@ -27,9 +31,95 @@ export class GalleryService {
           },
         },
       },
+
       orderBy: [
         {
           sortOrder: "asc",
+        },
+        {
+          createdAt: "desc",
+        },
+      ],
+    });
+  }
+
+  async findPublishedImages() {
+    return this.prisma.galleryImage.findMany({
+      where: {
+        status: "PUBLISHED",
+        mediaType: "IMAGE",
+      },
+
+      include: {
+        event: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+          },
+        },
+      },
+
+      orderBy: [
+        {
+          sortOrder: "asc",
+        },
+        {
+          createdAt: "desc",
+        },
+      ],
+    });
+  }
+
+  async findPublishedVideos() {
+    return this.prisma.galleryImage.findMany({
+      where: {
+        status: "PUBLISHED",
+        mediaType: "VIDEO",
+      },
+
+      include: {
+        event: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+          },
+        },
+      },
+
+      orderBy: [
+        {
+          sortOrder: "asc",
+        },
+        {
+          createdAt: "desc",
+        },
+      ],
+    });
+  }
+
+  async findHomepageVideos() {
+    return this.prisma.galleryImage.findMany({
+      where: {
+        mediaType: "VIDEO",
+        status: "PUBLISHED",
+        showOnHomepage: true,
+      },
+
+      include: {
+        event: {
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+          },
+        },
+      },
+
+      orderBy: [
+        {
+          homepageSortOrder: "asc",
         },
         {
           createdAt: "desc",
@@ -49,6 +139,7 @@ export class GalleryService {
           },
         },
       },
+
       orderBy: [
         {
           sortOrder: "asc",
@@ -61,11 +152,12 @@ export class GalleryService {
   }
 
   async findOne(id: number) {
-    const galleryImage =
+    const galleryItem =
       await this.prisma.galleryImage.findUnique({
         where: {
           id,
         },
+
         include: {
           event: {
             select: {
@@ -77,28 +169,37 @@ export class GalleryService {
         },
       });
 
-    if (!galleryImage) {
+    if (!galleryItem) {
       throw new NotFoundException(
-        `Gallery image with ID ${id} was not found.`,
+        `Gallery media item with ID ${id} was not found.`,
       );
     }
 
-    return galleryImage;
+    return galleryItem;
   }
 
   async create(
     createGalleryImageDto: CreateGalleryImageDto,
   ) {
-    const { eventId, ...galleryData } =
-      createGalleryImageDto;
+    const {
+      eventId,
+      ...galleryData
+    } = createGalleryImageDto;
 
     await this.validateEvent(eventId);
 
     return this.prisma.galleryImage.create({
       data: {
         ...galleryData,
-        eventId: eventId ?? null,
+
+        mediaType:
+          galleryData.mediaType ??
+          "IMAGE",
+
+        eventId:
+          eventId ?? null,
       },
+
       include: {
         event: {
           select: {
@@ -115,10 +216,12 @@ export class GalleryService {
     id: number,
     updateGalleryImageDto: UpdateGalleryImageDto,
   ) {
-    await this.ensureGalleryImageExists(id);
+    await this.ensureGalleryItemExists(id);
 
-    const { eventId, ...galleryData } =
-      updateGalleryImageDto;
+    const {
+      eventId,
+      ...galleryData
+    } = updateGalleryImageDto;
 
     await this.validateEvent(eventId);
 
@@ -126,13 +229,16 @@ export class GalleryService {
       where: {
         id,
       },
+
       data: {
         ...galleryData,
+
         eventId:
           eventId === undefined
             ? undefined
             : eventId,
       },
+
       include: {
         event: {
           select: {
@@ -146,7 +252,39 @@ export class GalleryService {
   }
 
   async remove(id: number) {
-    await this.ensureGalleryImageExists(id);
+    const galleryItem =
+      await this.prisma.galleryImage.findUnique({
+        where: {
+          id,
+        },
+
+        select: {
+          id: true,
+          mediaType: true,
+          publicId: true,
+        },
+      });
+
+    if (!galleryItem) {
+      throw new NotFoundException(
+        `Gallery media item with ID ${id} was not found.`,
+      );
+    }
+
+    if (galleryItem.publicId) {
+      if (
+        galleryItem.mediaType ===
+        "VIDEO"
+      ) {
+        await this.cloudinaryService.deleteVideo(
+          galleryItem.publicId,
+        );
+      } else {
+        await this.cloudinaryService.deleteImage(
+          galleryItem.publicId,
+        );
+      }
+    }
 
     return this.prisma.galleryImage.delete({
       where: {
@@ -162,14 +300,16 @@ export class GalleryService {
       return;
     }
 
-    const event = await this.prisma.event.findUnique({
-      where: {
-        id: eventId,
-      },
-      select: {
-        id: true,
-      },
-    });
+    const event =
+      await this.prisma.event.findUnique({
+        where: {
+          id: eventId,
+        },
+
+        select: {
+          id: true,
+        },
+      });
 
     if (!event) {
       throw new NotFoundException(
@@ -178,22 +318,23 @@ export class GalleryService {
     }
   }
 
-  private async ensureGalleryImageExists(
+  private async ensureGalleryItemExists(
     id: number,
   ): Promise<void> {
-    const galleryImage =
+    const galleryItem =
       await this.prisma.galleryImage.findUnique({
         where: {
           id,
         },
+
         select: {
           id: true,
         },
       });
 
-    if (!galleryImage) {
+    if (!galleryItem) {
       throw new NotFoundException(
-        `Gallery image with ID ${id} was not found.`,
+        `Gallery media item with ID ${id} was not found.`,
       );
     }
   }
