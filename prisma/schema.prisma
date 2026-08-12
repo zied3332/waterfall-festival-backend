@@ -50,6 +50,11 @@ enum GalleryStatus {
   ARCHIVED
 }
 
+enum GalleryMediaType {
+  IMAGE
+  VIDEO
+}
+
 enum FaqStatus {
   DRAFT
   PUBLISHED
@@ -314,14 +319,28 @@ model ContactMessage {
 }
 
 model GalleryImage {
-  id          Int           @id @default(autoincrement())
+  id Int @id @default(autoincrement())
+
+  mediaType GalleryMediaType @default(IMAGE)
+
   title       String
   description String?
-  imageUrl    String
   altText     String?
-  status      GalleryStatus @default(DRAFT)
-  isFeatured  Boolean       @default(false)
-  sortOrder   Int           @default(0)
+
+  imageUrl String
+  publicId String?
+
+  thumbnailUrl String?
+  duration     Float?
+  width        Int?
+  height       Int?
+
+  status     GalleryStatus @default(DRAFT)
+  isFeatured Boolean       @default(false)
+  sortOrder  Int           @default(0)
+
+  showOnHomepage    Boolean @default(false)
+  homepageSortOrder Int     @default(0)
 
   eventId Int?
   event   Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
@@ -329,9 +348,12 @@ model GalleryImage {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([mediaType])
   @@index([status])
   @@index([eventId])
   @@index([isFeatured])
+  @@index([showOnHomepage])
+  @@index([homepageSortOrder])
   @@index([sortOrder])
   @@index([createdAt])
 }
