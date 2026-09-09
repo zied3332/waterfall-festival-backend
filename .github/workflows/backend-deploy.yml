@@ -33,7 +33,7 @@ jobs:
             --exclude='./node_modules' \
             --exclude='./.git' \
             --exclude='./.env' \
-            -czf backend.tar.gz \
+            -czf "$RUNNER_TEMP/backend.tar.gz" \
             .
 
       - name: Deploy to cPanel
@@ -65,11 +65,15 @@ jobs:
 
           setsid ssh-add ~/.ssh/deploy_key < /dev/null
 
+          echo "Uploading backend package..."
+
           scp \
             -P "$SSH_PORT" \
             -o StrictHostKeyChecking=accept-new \
-            backend.tar.gz \
+            "$RUNNER_TEMP/backend.tar.gz" \
             "$SSH_USER@$SSH_HOST:~/waterfall-backend-deploy.tar.gz"
+
+          echo "Connecting to production server..."
 
           ssh \
             -p "$SSH_PORT" \
@@ -83,14 +87,25 @@ jobs:
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           BACKUP="$HOME/waterfall-backups/backend-$TIMESTAMP"
 
-          echo "Creating backup..."
+          CI_DATABASE_URL="postgresql://ci_user:ci_password@localhost:5432/ci_database"
+
+          echo "-----------------------------------"
+          echo "Creating backend backup"
+          echo "-----------------------------------"
+
           mkdir -p "$BACKUP"
 
           if [ -d "$APP" ]; then
             cp -a "$APP/." "$BACKUP/"
           fi
 
-          echo "Deploying backend files..."
+          echo "Backup created:"
+          echo "$BACKUP"
+
+          echo "-----------------------------------"
+          echo "Deploying new backend files"
+          echo "-----------------------------------"
+
           mkdir -p "$APP"
 
           tar \
@@ -101,27 +116,57 @@ jobs:
 
           cd "$APP"
 
-          echo "Installing production dependencies..."
-          npm ci
+          echo "-----------------------------------"
+          echo "Installing dependencies"
+          echo "-----------------------------------"
 
-          echo "Generating Prisma client..."
-          npx prisma generate
+          DATABASE_URL="$CI_DATABASE_URL" npm ci
 
-          echo "Building backend..."
-          npm run build
+          echo "-----------------------------------"
+          echo "Generating Prisma Client"
+          echo "-----------------------------------"
 
-          echo "Restarting application..."
-          mkdir -p tmp
-          touch tmp/restart.txt
+          DATABASE_URL="$CI_DATABASE_URL" npx prisma generate
 
-          echo "Backend deployment completed."
+          echo "-----------------------------------"
+          echo "Building NestJS backend"
+          echo "-----------------------------------"
+
+          DATABASE_URL="$CI_DATABASE_URL" npm run build
+
+          echo "-----------------------------------"
+          echo "Checking production build"
+          echo "-----------------------------------"
+
+          if [ ! -f "$APP/dist/src/main.js" ]; then
+            echo "ERROR: dist/src/main.js was not generated."
+            exit 1
+          fi
+
+          echo "Production build exists."
+
+          echo "-----------------------------------"
+          echo "Restarting cPanel Node application"
+          echo "-----------------------------------"
+
+          mkdir -p "$APP/tmp"
+          touch "$APP/tmp/restart.txt"
+
+          echo "-----------------------------------"
+          echo "Backend deployment completed"
+          echo "-----------------------------------"
+
+          echo "Application: $APP"
           echo "Backup: $BACKUP"
 
           REMOTE_SCRIPT
 
-      - name: Verify API
+      - name: Wait for backend restart
+        run: sleep 8
+
+      - name: Verify production API
         run: |
-          sleep 5
+          echo "Checking Waterfall production API..."
 
           curl \
             --fail \
@@ -131,4 +176,4 @@ jobs:
             https://api.waterfallpartykohphangan.com/ \
             > /dev/null
 
-          echo "API responded successfully."
+          echo "Production API responded successfully."
