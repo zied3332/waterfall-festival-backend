@@ -12,6 +12,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      # Dummy CI-only URL.
+      # Prisma needs DATABASE_URL while loading prisma.config.ts.
+      # This does NOT connect to the production database.
+      DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/ci_database
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
