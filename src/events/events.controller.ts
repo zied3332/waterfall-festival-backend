@@ -3,6 +3,7 @@ import {
   Get,
   Param,
 } from '@nestjs/common';
+
 import {
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -12,6 +13,7 @@ import {
 } from '@nestjs/swagger';
 
 import { EventResponseDto } from './dto/event-response.dto.js';
+
 import { EventsService } from './events.service.js';
 
 @ApiTags('Public Events')
@@ -36,6 +38,21 @@ export class EventsController {
   })
   findAll() {
     return this.eventsService.findAll();
+  }
+
+  @Get('homepage')
+  @ApiOperation({
+    summary:
+      'Get the event currently displayed on the homepage',
+    description:
+      'Returns the event that should currently be used by the homepage, including automatic or manual event-selection information.',
+  })
+  @ApiOkResponse({
+    description:
+      'Homepage event returned successfully.',
+  })
+  getHomepageEvent() {
+    return this.eventsService.getHomepageEvent();
   }
 
   @Get(':slug')
