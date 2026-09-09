@@ -1,0 +1,134 @@
+name: Deploy Backend
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        env:
+          DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/ci_database
+        run: npm ci
+
+      - name: Build backend
+        env:
+          DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/ci_database
+        run: npm run build
+
+      - name: Package backend
+        run: |
+          tar \
+            --exclude='./node_modules' \
+            --exclude='./.git' \
+            --exclude='./.env' \
+            -czf backend.tar.gz \
+            .
+
+      - name: Deploy to cPanel
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_KEY }}
+          SSH_PASSPHRASE: ${{ secrets.CPANEL_SSH_PASSPHRASE }}
+          SSH_HOST: ${{ secrets.CPANEL_HOST }}
+          SSH_USER: ${{ secrets.CPANEL_USERNAME }}
+          SSH_PORT: ${{ secrets.CPANEL_PORT }}
+        run: |
+          set -e
+
+          mkdir -p ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          eval "$(ssh-agent -s)"
+
+          cat > "$RUNNER_TEMP/askpass.sh" <<'EOF'
+          #!/bin/sh
+          printf '%s\n' "$SSH_PASSPHRASE"
+          EOF
+
+          chmod +x "$RUNNER_TEMP/askpass.sh"
+
+          export SSH_ASKPASS="$RUNNER_TEMP/askpass.sh"
+          export SSH_ASKPASS_REQUIRE=force
+
+          setsid ssh-add ~/.ssh/deploy_key < /dev/null
+
+          scp \
+            -P "$SSH_PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            backend.tar.gz \
+            "$SSH_USER@$SSH_HOST:~/waterfall-backend-deploy.tar.gz"
+
+          ssh \
+            -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            "$SSH_USER@$SSH_HOST" \
+            'bash -s' <<'REMOTE_SCRIPT'
+
+          set -e
+
+          APP="$HOME/waterfall-backend"
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BACKUP="$HOME/waterfall-backups/backend-$TIMESTAMP"
+
+          echo "Creating backup..."
+          mkdir -p "$BACKUP"
+
+          if [ -d "$APP" ]; then
+            cp -a "$APP/." "$BACKUP/"
+          fi
+
+          echo "Deploying backend files..."
+          mkdir -p "$APP"
+
+          tar \
+            -xzf "$HOME/waterfall-backend-deploy.tar.gz" \
+            -C "$APP"
+
+          rm -f "$HOME/waterfall-backend-deploy.tar.gz"
+
+          cd "$APP"
+
+          echo "Installing production dependencies..."
+          npm ci
+
+          echo "Generating Prisma client..."
+          npx prisma generate
+
+          echo "Building backend..."
+          npm run build
+
+          echo "Restarting application..."
+          mkdir -p tmp
+          touch tmp/restart.txt
+
+          echo "Backend deployment completed."
+          echo "Backup: $BACKUP"
+
+          REMOTE_SCRIPT
+
+      - name: Verify API
+        run: |
+          sleep 5
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            https://api.waterfallpartykohphangan.com/ \
+            > /dev/null
+
+          echo "API responded successfully."
