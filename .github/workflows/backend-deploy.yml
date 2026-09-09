@@ -84,14 +84,44 @@ jobs:
           set -e
 
           APP="$HOME/waterfall-backend"
+          NODE_ENV_DIR="$HOME/nodevenv/waterfall-backend/22"
+
           TIMESTAMP=$(date +%Y%m%d-%H%M%S)
           BACKUP="$HOME/waterfall-backups/backend-$TIMESTAMP"
 
           CI_DATABASE_URL="postgresql://ci_user:ci_password@localhost:5432/ci_database"
 
-          echo "-----------------------------------"
+          echo "==================================="
+          echo "Activating cPanel Node.js environment"
+          echo "==================================="
+
+          if [ -f "$NODE_ENV_DIR/bin/activate" ]; then
+            source "$NODE_ENV_DIR/bin/activate"
+          else
+            echo "Expected Node environment not found:"
+            echo "$NODE_ENV_DIR/bin/activate"
+
+            echo "Available Node environments:"
+            find "$HOME/nodevenv" \
+              -maxdepth 4 \
+              -type f \
+              -name activate \
+              2>/dev/null || true
+
+            exit 1
+          fi
+
+          echo "Node:"
+          which node
+          node --version
+
+          echo "NPM:"
+          which npm
+          npm --version
+
+          echo "==================================="
           echo "Creating backend backup"
-          echo "-----------------------------------"
+          echo "==================================="
 
           mkdir -p "$BACKUP"
 
@@ -102,9 +132,9 @@ jobs:
           echo "Backup created:"
           echo "$BACKUP"
 
-          echo "-----------------------------------"
-          echo "Deploying new backend files"
-          echo "-----------------------------------"
+          echo "==================================="
+          echo "Deploying backend files"
+          echo "==================================="
 
           mkdir -p "$APP"
 
@@ -116,45 +146,46 @@ jobs:
 
           cd "$APP"
 
-          echo "-----------------------------------"
+          echo "==================================="
           echo "Installing dependencies"
-          echo "-----------------------------------"
+          echo "==================================="
 
           DATABASE_URL="$CI_DATABASE_URL" npm ci
 
-          echo "-----------------------------------"
+          echo "==================================="
           echo "Generating Prisma Client"
-          echo "-----------------------------------"
+          echo "==================================="
 
           DATABASE_URL="$CI_DATABASE_URL" npx prisma generate
 
-          echo "-----------------------------------"
+          echo "==================================="
           echo "Building NestJS backend"
-          echo "-----------------------------------"
+          echo "==================================="
 
           DATABASE_URL="$CI_DATABASE_URL" npm run build
 
-          echo "-----------------------------------"
+          echo "==================================="
           echo "Checking production build"
-          echo "-----------------------------------"
+          echo "==================================="
 
           if [ ! -f "$APP/dist/src/main.js" ]; then
-            echo "ERROR: dist/src/main.js was not generated."
+            echo "ERROR: dist/src/main.js does not exist."
             exit 1
           fi
 
-          echo "Production build exists."
+          echo "Build verified:"
+          ls -lh "$APP/dist/src/main.js"
 
-          echo "-----------------------------------"
+          echo "==================================="
           echo "Restarting cPanel Node application"
-          echo "-----------------------------------"
+          echo "==================================="
 
           mkdir -p "$APP/tmp"
           touch "$APP/tmp/restart.txt"
 
-          echo "-----------------------------------"
+          echo "==================================="
           echo "Backend deployment completed"
-          echo "-----------------------------------"
+          echo "==================================="
 
           echo "Application: $APP"
           echo "Backup: $BACKUP"
@@ -162,18 +193,21 @@ jobs:
           REMOTE_SCRIPT
 
       - name: Wait for backend restart
-        run: sleep 8
+        run: sleep 10
 
       - name: Verify production API
         run: |
-          echo "Checking Waterfall production API..."
+          echo "Checking Waterfall Festival API..."
 
-          curl \
+          RESPONSE=$(curl \
             --fail \
             --silent \
             --show-error \
             --location \
-            https://api.waterfallpartykohphangan.com/ \
-            > /dev/null
+            https://api.waterfallpartykohphangan.com/)
 
-          echo "Production API responded successfully."
+          echo "$RESPONSE"
+
+          echo "$RESPONSE" | grep -q '"status":"running"'
+
+          echo "Production API is running successfully."
