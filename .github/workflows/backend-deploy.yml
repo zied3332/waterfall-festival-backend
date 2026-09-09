@@ -55,6 +55,7 @@ jobs:
           SSH_HOST: ${{ secrets.CPANEL_HOST }}
           SSH_USER: ${{ secrets.CPANEL_USERNAME }}
           SSH_PORT: ${{ secrets.CPANEL_PORT }}
+
         run: |
           set -e
 
@@ -114,6 +115,7 @@ jobs:
             echo "$NODE_ENV_DIR/bin/activate"
 
             echo "Available Node environments:"
+
             find "$HOME/nodevenv" \
               -maxdepth 4 \
               -type f \
@@ -187,6 +189,23 @@ jobs:
 
           echo "Build verified:"
           ls -lh "$APP/dist/src/main.js"
+
+          echo "==================================="
+          echo "Checking production environment"
+          echo "==================================="
+
+          if [ ! -f "$APP/.env" ]; then
+            echo "ERROR: Production .env file is missing."
+            exit 1
+          fi
+
+          echo "Production .env found."
+
+          echo "==================================="
+          echo "Running production Prisma migrations"
+          echo "==================================="
+
+          npx prisma migrate deploy
 
           echo "==================================="
           echo "Restarting cPanel Node application"
