@@ -150,7 +150,7 @@ jobs:
           echo "Installing dependencies"
           echo "==================================="
 
-          DATABASE_URL="$CI_DATABASE_URL" npm ci
+          DATABASE_URL="$CI_DATABASE_URL" npm ci --include=dev
 
           echo "==================================="
           echo "Generating Prisma Client"
