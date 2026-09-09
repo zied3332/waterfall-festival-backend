@@ -115,14 +115,12 @@ enum FestivalStatus {
   FINISHED
 }
 
-/*
+/**
  * Controls how the event displayed on the homepage
  * is selected.
- *
  * AUTO:
  * The backend automatically chooses the current/next
  * published event.
- *
  * MANUAL:
  * The administrator explicitly chooses an event.
  */
@@ -186,43 +184,36 @@ model WebsiteSettings {
   footerDescription String @default("Experience Thailand's most unforgettable music festival in the heart of Koh Phangan.")
   footerCopyright   String @default("© Waterfall Festival. All rights reserved.")
 
-  /*
+  /**
    * Homepage event configuration.
-   *
    * AUTO:
    * Keep an event on the homepage until
    * homepageAutoSwitchHours hours after its start time,
    * then automatically move to the next published event.
-   *
    * MANUAL:
    * Use homepageManualEvent as the homepage event.
    */
-  homepageEventMode        HomepageEventMode @default(AUTO)
+  homepageEventMode       HomepageEventMode @default(AUTO)
   homepageAutoSwitchHours Int               @default(8)
 
   homepageManualEventId Int?
-  homepageManualEvent   Event? @relation(
-    "HomepageManualEvent",
-    fields: [homepageManualEventId],
-    references: [id],
-    onDelete: SetNull
-  )
+  homepageManualEvent   Event? @relation("HomepageManualEvent", fields: [homepageManualEventId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
   passwordHash String
   firstName    String?
   lastName     String?
-  role         UserRole @default(ADMIN)
-  isActive     Boolean  @default(true)
+  role         UserRole  @default(ADMIN)
+  isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([role])
   @@index([isActive])
@@ -249,7 +240,7 @@ model Event {
   galleryImages GalleryImage[]
   tickets       TicketPreview[]
 
-  /*
+  /**
    * Reverse relation used when this event is selected
    * manually as the homepage event.
    */
@@ -305,8 +296,8 @@ model TicketPreview {
   benefits TicketBenefit[]
 
   lastSyncedAt DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@unique([eventId, slug])
   @@index([eventId])
@@ -328,7 +319,7 @@ model TicketBenefit {
   ticketPreview   TicketPreview @relation(fields: [ticketPreviewId], references: [id], onDelete: Cascade)
 
   text      String
-  sortOrder Int @default(0)
+  sortOrder Int    @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -339,7 +330,7 @@ model TicketBenefit {
 }
 
 model ContactMessage {
-  id      Int    @id @default(autoincrement())
+  id      Int     @id @default(autoincrement())
   name    String
   email   String
   phone   String?
@@ -431,8 +422,8 @@ model Notification {
   contactMessageId Int?
   contactMessage   ContactMessage? @relation(fields: [contactMessageId], references: [id], onDelete: SetNull)
 
-  createdAt DateTime @default(now())
-  readAt   DateTime?
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
 
   @@index([type])
   @@index([priority])

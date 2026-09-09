@@ -12,7 +12,11 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+
+import {
+  FileInterceptor,
+} from '@nestjs/platform-express';
+
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -29,14 +33,41 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 
-import { Roles } from '../auth/decorators/roles.decorator.js';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { RolesGuard } from '../auth/guards/roles.guard.js';
-import { UserRole } from '../generated/prisma/enums.js';
-import { CreateEventDto } from './dto/create-event.dto.js';
-import { EventResponseDto } from './dto/event-response.dto.js';
-import { UpdateEventDto } from './dto/update-event.dto.js';
-import { EventsService } from './events.service.js';
+import {
+  Roles,
+} from '../auth/decorators/roles.decorator.js';
+
+import {
+  JwtAuthGuard,
+} from '../auth/guards/jwt-auth.guard.js';
+
+import {
+  RolesGuard,
+} from '../auth/guards/roles.guard.js';
+
+import {
+  UserRole,
+} from '../generated/prisma/enums.js';
+
+import {
+  CreateEventDto,
+} from './dto/create-event.dto.js';
+
+import {
+  EventResponseDto,
+} from './dto/event-response.dto.js';
+
+import {
+  UpdateEventDto,
+} from './dto/update-event.dto.js';
+
+import {
+  UpdateHomepageEventSettingsDto,
+} from './dto/update-homepage-event-settings.dto.js';
+
+import {
+  EventsService,
+} from './events.service.js';
 
 const MAX_HERO_IMAGE_SIZE =
   5 * 1024 * 1024;
@@ -60,12 +91,21 @@ const ALLOWED_HERO_IMAGE_MIME_TYPES =
     'The authenticated user does not have administrator permission.',
 })
 @Controller('admin/events')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(
+  JwtAuthGuard,
+  RolesGuard,
+)
 @Roles(UserRole.ADMIN)
 export class AdminEventsController {
   constructor(
     private readonly eventsService: EventsService,
   ) {}
+
+  /*
+   * ============================================================
+   * CREATE EVENT
+   * ============================================================
+   */
 
   @Post()
   @ApiOperation({
@@ -91,6 +131,12 @@ export class AdminEventsController {
     );
   }
 
+  /*
+   * ============================================================
+   * LIST EVENTS
+   * ============================================================
+   */
+
   @Get()
   @ApiOperation({
     summary:
@@ -107,6 +153,68 @@ export class AdminEventsController {
   findAll() {
     return this.eventsService.findAllForAdmin();
   }
+
+  /*
+   * ============================================================
+   * HOMEPAGE EVENT SETTINGS
+   * ============================================================
+   *
+   * IMPORTANT:
+   * These static routes must stay before @Get(':id').
+   *
+   * Otherwise Nest could interpret "homepage-settings"
+   * as an event ID.
+   * ============================================================
+   */
+
+  @Get('homepage-settings')
+  @ApiOperation({
+    summary:
+      'Get homepage event settings',
+    description:
+      'Returns the configured homepage event mode, automatic switch delay, manually selected event and the event currently resolved for the homepage.',
+  })
+  @ApiOkResponse({
+    description:
+      'Homepage event settings returned successfully.',
+  })
+  getHomepageEventSettings() {
+    return this.eventsService.getHomepageEventSettingsForAdmin();
+  }
+
+  @Patch('homepage-settings')
+  @ApiOperation({
+    summary:
+      'Update homepage event settings',
+    description:
+      'Changes the homepage event mode between AUTO and MANUAL, changes the automatic switch delay, or selects the event used in MANUAL mode.',
+  })
+  @ApiOkResponse({
+    description:
+      'Homepage event settings updated successfully.',
+  })
+  @ApiBadRequestResponse({
+    description:
+      'The homepage settings are invalid, or MANUAL mode does not have a valid published event.',
+  })
+  @ApiNotFoundResponse({
+    description:
+      'The manually selected event does not exist.',
+  })
+  updateHomepageEventSettings(
+    @Body()
+    dto: UpdateHomepageEventSettingsDto,
+  ) {
+    return this.eventsService.updateHomepageEventSettings(
+      dto,
+    );
+  }
+
+  /*
+   * ============================================================
+   * GET ONE EVENT
+   * ============================================================
+   */
 
   @Get(':id')
   @ApiOperation({
@@ -137,13 +245,22 @@ export class AdminEventsController {
       'No event exists with the supplied ID.',
   })
   findOne(
-    @Param('id', ParseIntPipe)
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
     id: number,
   ) {
     return this.eventsService.findOneForAdmin(
       id,
     );
   }
+
+  /*
+   * ============================================================
+   * HERO IMAGE
+   * ============================================================
+   */
 
   @Patch(':id/hero-image')
   @ApiOperation({
@@ -160,12 +277,16 @@ export class AdminEventsController {
     description:
       'Unique numeric event identifier.',
   })
-  @ApiConsumes('multipart/form-data')
+  @ApiConsumes(
+    'multipart/form-data',
+  )
   @ApiBody({
     required: true,
     schema: {
       type: 'object',
-      required: ['image'],
+      required: [
+        'image',
+      ],
       properties: {
         image: {
           type: 'string',
@@ -194,38 +315,50 @@ export class AdminEventsController {
       'No event exists with the supplied ID.',
   })
   @UseInterceptors(
-    FileInterceptor('image', {
-      limits: {
-        fileSize: MAX_HERO_IMAGE_SIZE,
-        files: 1,
-      },
-      fileFilter: (
-        _request,
-        file,
-        callback,
-      ) => {
-        if (
-          !ALLOWED_HERO_IMAGE_MIME_TYPES.has(
-            file.mimetype,
-          )
-        ) {
+    FileInterceptor(
+      'image',
+      {
+        limits: {
+          fileSize:
+            MAX_HERO_IMAGE_SIZE,
+          files: 1,
+        },
+
+        fileFilter: (
+          _request,
+          file,
+          callback,
+        ) => {
+          if (
+            !ALLOWED_HERO_IMAGE_MIME_TYPES.has(
+              file.mimetype,
+            )
+          ) {
+            callback(
+              new BadRequestException(
+                'Only JPG, PNG, WebP and AVIF images are allowed.',
+              ),
+              false,
+            );
+
+            return;
+          }
+
           callback(
-            new BadRequestException(
-              'Only JPG, PNG, WebP and AVIF images are allowed.',
-            ),
-            false,
+            null,
+            true,
           );
-
-          return;
-        }
-
-        callback(null, true);
+        },
       },
-    }),
+    ),
   )
   uploadHeroImage(
-    @Param('id', ParseIntPipe)
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
     id: number,
+
     @UploadedFile()
     file?: Express.Multer.File,
   ) {
@@ -241,9 +374,16 @@ export class AdminEventsController {
     );
   }
 
+  /*
+   * ============================================================
+   * UPDATE EVENT
+   * ============================================================
+   */
+
   @Patch(':id')
   @ApiOperation({
-    summary: 'Update an event',
+    summary:
+      'Update an event',
     description:
       'Updates one or more event fields. Fields not included in the request body remain unchanged.',
   })
@@ -269,8 +409,12 @@ export class AdminEventsController {
       'No event exists with the supplied ID.',
   })
   update(
-    @Param('id', ParseIntPipe)
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
     id: number,
+
     @Body()
     updateEventDto: UpdateEventDto,
   ) {
@@ -280,9 +424,16 @@ export class AdminEventsController {
     );
   }
 
+  /*
+   * ============================================================
+   * DELETE EVENT
+   * ============================================================
+   */
+
   @Delete(':id')
   @ApiOperation({
-    summary: 'Delete an event',
+    summary:
+      'Delete an event',
     description:
       'Deletes the event from the database and performs any configured hero-image cleanup.',
   })
@@ -307,9 +458,14 @@ export class AdminEventsController {
       'No event exists with the supplied ID.',
   })
   remove(
-    @Param('id', ParseIntPipe)
+    @Param(
+      'id',
+      ParseIntPipe,
+    )
     id: number,
   ) {
-    return this.eventsService.remove(id);
+    return this.eventsService.remove(
+      id,
+    );
   }
 }
