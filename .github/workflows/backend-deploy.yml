@@ -55,6 +55,7 @@ jobs:
           SSH_HOST: ${{ secrets.CPANEL_HOST }}
           SSH_USER: ${{ secrets.CPANEL_USERNAME }}
           SSH_PORT: ${{ secrets.CPANEL_PORT }}
+          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
 
         run: |
           set -e
@@ -78,6 +79,18 @@ jobs:
 
           setsid ssh-add ~/.ssh/deploy_key < /dev/null
 
+          if [ -z "$PRODUCTION_DATABASE_URL" ]; then
+            echo "ERROR: PRODUCTION_DATABASE_URL secret is missing."
+            exit 1
+          fi
+
+          echo "Preparing production database configuration..."
+
+          printf '%s' "$PRODUCTION_DATABASE_URL" \
+            > "$RUNNER_TEMP/production_database_url"
+
+          chmod 600 "$RUNNER_TEMP/production_database_url"
+
           echo "Uploading backend package..."
 
           scp \
@@ -85,6 +98,22 @@ jobs:
             -o StrictHostKeyChecking=accept-new \
             "$RUNNER_TEMP/backend.tar.gz" \
             "$SSH_USER@$SSH_HOST:~/waterfall-backend-deploy.tar.gz"
+
+          echo "Uploading temporary migration configuration..."
+
+          scp \
+            -P "$SSH_PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            "$RUNNER_TEMP/production_database_url" \
+            "$SSH_USER@$SSH_HOST:~/waterfall-production-database-url.tmp"
+
+          ssh \
+            -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            "$SSH_USER@$SSH_HOST" \
+            'chmod 600 ~/waterfall-production-database-url.tmp'
+
+          rm -f "$RUNNER_TEMP/production_database_url"
 
           echo "Connecting to production server..."
 
@@ -103,6 +132,9 @@ jobs:
           BACKUP="$HOME/waterfall-backups/backend-$TIMESTAMP"
 
           CI_DATABASE_URL="postgresql://ci_user:ci_password@localhost:5432/ci_database"
+          DATABASE_SECRET_FILE="$HOME/waterfall-production-database-url.tmp"
+
+          trap 'rm -f "$DATABASE_SECRET_FILE"' EXIT
 
           echo "==================================="
           echo "Activating cPanel Node.js environment"
@@ -191,21 +223,33 @@ jobs:
           ls -lh "$APP/dist/src/main.js"
 
           echo "==================================="
-          echo "Checking production environment"
+          echo "Checking production database configuration"
           echo "==================================="
 
-          if [ ! -f "$APP/.env" ]; then
-            echo "ERROR: Production .env file is missing."
+          if [ ! -f "$DATABASE_SECRET_FILE" ]; then
+            echo "ERROR: Production database configuration is missing."
             exit 1
           fi
 
-          echo "Production .env found."
+          DATABASE_URL="$(cat "$DATABASE_SECRET_FILE")"
+          rm -f "$DATABASE_SECRET_FILE"
+
+          if [ -z "$DATABASE_URL" ]; then
+            echo "ERROR: Production DATABASE_URL is empty."
+            exit 1
+          fi
+
+          export DATABASE_URL
+
+          echo "Production database configuration loaded."
 
           echo "==================================="
           echo "Running production Prisma migrations"
           echo "==================================="
 
           npx prisma migrate deploy
+
+          unset DATABASE_URL
 
           echo "==================================="
           echo "Restarting cPanel Node application"
