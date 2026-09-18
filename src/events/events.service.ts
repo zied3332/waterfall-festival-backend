@@ -6,31 +6,50 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 
-import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
+import {
+  LocalImageStorageService,
+} from "../storage/local-image-storage.service.js";
 
 import {
   EventStatus,
   HomepageEventMode,
 } from "../generated/prisma/enums.js";
 
-import { PrismaService } from "../prisma/prisma.service.js";
+import {
+  PrismaService,
+} from "../prisma/prisma.service.js";
 
-import { CreateEventDto } from "./dto/create-event.dto.js";
-import { UpdateEventDto } from "./dto/update-event.dto.js";
-import { UpdateHomepageEventSettingsDto } from "./dto/update-homepage-event-settings.dto.js";
+import {
+  CreateEventDto,
+} from "./dto/create-event.dto.js";
 
-const FESTIVAL_TIME_ZONE = "Asia/Bangkok";
-const WEBSITE_SETTINGS_ID = 1;
+import {
+  UpdateEventDto,
+} from "./dto/update-event.dto.js";
+
+import {
+  UpdateHomepageEventSettingsDto,
+} from "./dto/update-homepage-event-settings.dto.js";
+
+const FESTIVAL_TIME_ZONE =
+  "Asia/Bangkok";
+
+const WEBSITE_SETTINGS_ID =
+  1;
 
 @Injectable()
 export class EventsService {
-  private readonly logger = new Logger(
-    EventsService.name,
-  );
+  private readonly logger =
+    new Logger(
+      EventsService.name,
+    );
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly prisma:
+      PrismaService,
+
+    private readonly localImageStorageService:
+      LocalImageStorageService,
   ) {}
 
   /*
@@ -42,23 +61,31 @@ export class EventsService {
   findAll() {
     return this.prisma.event.findMany({
       where: {
-        status: EventStatus.PUBLISHED,
+        status:
+          EventStatus.PUBLISHED,
       },
+
       orderBy: {
-        date: "asc",
+        date:
+          "asc",
       },
     });
   }
 
-  async findBySlug(slug: string) {
+  async findBySlug(
+    slug: string,
+  ) {
     const event =
       await this.prisma.event.findUnique({
-        where: { slug },
+        where: {
+          slug,
+        },
       });
 
     if (
       !event ||
-      event.status !== EventStatus.PUBLISHED
+      event.status !==
+        EventStatus.PUBLISHED
     ) {
       throw new NotFoundException(
         "Event not found",
@@ -73,18 +100,22 @@ export class EventsService {
    * HOMEPAGE EVENT
    * ============================================================
    *
-   * AUTO:
-   * The backend automatically chooses the event that should
-   * currently be displayed on the homepage.
-   *
-   * An event stays on the homepage until
-   * homepageAutoSwitchHours hours after its start time.
-   *
-   * After that time, the next published event becomes
-   * the homepage event.
-   *
    * MANUAL:
-   * The administrator explicitly selects the event.
+   * The administrator explicitly selects a published event.
+   * That event remains the homepage event until the
+   * administrator changes the selection or switches back to AUTO.
+   *
+   * AUTO:
+   * Published events are ordered by date.
+   *
+   * An event remains the homepage event until 21:00
+   * Asia/Bangkok on its event date.
+   *
+   * The switch will never happen before the event's actual
+   * start time.
+   *
+   * After the switch time passes, the next published event
+   * automatically becomes the homepage event.
    * ============================================================
    */
 
@@ -93,13 +124,9 @@ export class EventsService {
       await this.ensureWebsiteSettings();
 
     /*
-     * Try MANUAL mode first.
-     *
-     * The selected event must still exist and must
-     * still be published.
-     *
-     * If it does not, we safely fall back to AUTO.
+     * MANUAL MODE
      */
+
     if (
       settings.homepageEventMode ===
         HomepageEventMode.MANUAL &&
@@ -108,36 +135,44 @@ export class EventsService {
       const manualEvent =
         await this.prisma.event.findFirst({
           where: {
-            id: settings.homepageManualEventId,
-            status: EventStatus.PUBLISHED,
+            id:
+              settings.homepageManualEventId,
+
+            status:
+              EventStatus.PUBLISHED,
           },
         });
 
       if (manualEvent) {
         return {
-          mode: HomepageEventMode.MANUAL,
-          autoSwitchHours:
-            settings.homepageAutoSwitchHours,
-          event: manualEvent,
-          switchAt: null,
+          mode:
+            HomepageEventMode.MANUAL,
+
+          event:
+            manualEvent,
+
+          switchAt:
+            null,
         };
       }
     }
 
     /*
-     * AUTO mode.
+     * AUTO MODE
      */
+
     const automatic =
-      await this.resolveAutomaticHomepageEvent(
-        settings.homepageAutoSwitchHours,
-      );
+      await this.resolveAutomaticHomepageEvent();
 
     return {
-      mode: HomepageEventMode.AUTO,
-      autoSwitchHours:
-        settings.homepageAutoSwitchHours,
-      event: automatic.event,
-      switchAt: automatic.switchAt,
+      mode:
+        HomepageEventMode.AUTO,
+
+      event:
+        automatic.event,
+
+      switchAt:
+        automatic.switchAt,
     };
   }
 
@@ -155,7 +190,8 @@ export class EventsService {
       settings.homepageManualEventId
         ? await this.prisma.event.findUnique({
             where: {
-              id: settings.homepageManualEventId,
+              id:
+                settings.homepageManualEventId,
             },
           })
         : null;
@@ -167,25 +203,20 @@ export class EventsService {
       homepageEventMode:
         settings.homepageEventMode,
 
-      homepageAutoSwitchHours:
-        settings.homepageAutoSwitchHours,
-
       homepageManualEventId:
         settings.homepageManualEventId,
 
       homepageManualEvent:
         manualEvent,
 
-      /*
-       * This tells the admin which mode/event is
-       * actually being used right now.
-       *
-       * For example, MANUAL can safely fall back
-       * to AUTO if its selected event is unavailable.
-       */
-      resolvedMode: resolved.mode,
-      resolvedEvent: resolved.event,
-      switchAt: resolved.switchAt,
+      resolvedMode:
+        resolved.mode,
+
+      resolvedEvent:
+        resolved.event,
+
+      switchAt:
+        resolved.switchAt,
     };
   }
 
@@ -195,25 +226,20 @@ export class EventsService {
     const current =
       await this.ensureWebsiteSettings();
 
-    /*
-     * Work out what the settings will look like
-     * after this update.
-     */
     const nextMode =
       dto.homepageEventMode ??
       current.homepageEventMode;
 
     const manualEventId =
-      dto.homepageManualEventId !== undefined
+      dto.homepageManualEventId !==
+      undefined
         ? dto.homepageManualEventId
         : current.homepageManualEventId;
 
     /*
-     * A manual event must be validated when:
-     *
-     * 1. MANUAL mode is being used, or
-     * 2. the admin explicitly sends a manual event ID.
+     * Validate manually selected event.
      */
+
     if (
       manualEventId !== null &&
       (
@@ -226,7 +252,8 @@ export class EventsService {
       const selectedEvent =
         await this.prisma.event.findUnique({
           where: {
-            id: manualEventId,
+            id:
+              manualEventId,
           },
         });
 
@@ -247,8 +274,9 @@ export class EventsService {
     }
 
     /*
-     * MANUAL mode cannot work without an event.
+     * MANUAL requires an event.
      */
+
     if (
       nextMode ===
         HomepageEventMode.MANUAL &&
@@ -261,7 +289,8 @@ export class EventsService {
 
     await this.prisma.websiteSettings.update({
       where: {
-        id: WEBSITE_SETTINGS_ID,
+        id:
+          WEBSITE_SETTINGS_ID,
       },
 
       data: {
@@ -269,12 +298,6 @@ export class EventsService {
           undefined && {
           homepageEventMode:
             dto.homepageEventMode,
-        }),
-
-        ...(dto.homepageAutoSwitchHours !==
-          undefined && {
-          homepageAutoSwitchHours:
-            dto.homepageAutoSwitchHours,
         }),
 
         ...(dto.homepageManualEventId !==
@@ -302,13 +325,16 @@ export class EventsService {
         createEventDto.date,
       );
 
-    const slug = this.createSlug(
-      createEventDto.title,
-    );
+    const slug =
+      this.createSlug(
+        createEventDto.title,
+      );
 
     const existingEvent =
       await this.prisma.event.findUnique({
-        where: { slug },
+        where: {
+          slug,
+        },
       });
 
     if (existingEvent) {
@@ -320,15 +346,18 @@ export class EventsService {
     return this.prisma.event.create({
       data: {
         ...createEventDto,
+
         slug,
-        date: eventDate,
+
+        date:
+          eventDate,
       },
     });
   }
 
   /*
    * ============================================================
-   * HERO IMAGE
+   * HERO IMAGE - LOCAL STORAGE
    * ============================================================
    */
 
@@ -338,7 +367,9 @@ export class EventsService {
   ) {
     const existingEvent =
       await this.prisma.event.findUnique({
-        where: { id },
+        where: {
+          id,
+        },
       });
 
     if (!existingEvent) {
@@ -347,51 +378,95 @@ export class EventsService {
       );
     }
 
+    /*
+     * First save the NEW image to disk.
+     *
+     * We do not delete the previous poster yet.
+     * This means a failed upload cannot destroy
+     * the event's existing poster.
+     */
+
     const uploadedImage =
-      await this.cloudinaryService.uploadEventHeroImage(
+      await this.localImageStorageService.saveEventPoster(
+        id,
         file,
       );
 
     try {
+      /*
+       * Save the local URL in PostgreSQL.
+       *
+       * Example:
+       *
+       * /uploads/events/event-12-xxxxx.jpg
+       *
+       * heroImagePublicId belonged to Cloudinary,
+       * so event posters no longer need it.
+       */
+
       const updatedEvent =
         await this.prisma.event.update({
-          where: { id },
+          where: {
+            id,
+          },
 
           data: {
             heroImageUrl:
-              uploadedImage.secure_url,
+              uploadedImage.url,
 
             heroImagePublicId:
-              uploadedImage.public_id,
+              null,
           },
         });
 
-      if (
-        existingEvent.heroImagePublicId
+      /*
+       * The database now references the new poster.
+       *
+       * It is safe to remove the previous LOCAL
+       * poster.
+       *
+       * LocalImageStorageService ignores old
+       * Cloudinary/external URLs.
+       */
+
+      try {
+        await this.localImageStorageService.deleteEventPoster(
+          existingEvent.heroImageUrl,
+        );
+      } catch (
+        error: unknown
       ) {
-        try {
-          await this.cloudinaryService.deleteImage(
-            existingEvent.heroImagePublicId,
-          );
-        } catch (error: unknown) {
-          this.logger.warn(
-            `The previous hero image for event ${id} could not be deleted from Cloudinary.`,
-            error instanceof Error
-              ? error.stack
-              : undefined,
-          );
-        }
+        this.logger.warn(
+          `The previous local hero image for event ${id} could not be deleted.`,
+
+          error instanceof Error
+            ? error.stack
+            : undefined,
+        );
       }
 
       return updatedEvent;
-    } catch (error: unknown) {
+    } catch (
+      error: unknown
+    ) {
+      /*
+       * The image was written successfully,
+       * but updating PostgreSQL failed.
+       *
+       * Remove the newly created file so that
+       * it does not become an orphan.
+       */
+
       try {
-        await this.cloudinaryService.deleteImage(
-          uploadedImage.public_id,
+        await this.localImageStorageService.deleteEventPoster(
+          uploadedImage.url,
         );
-      } catch (cleanupError: unknown) {
+      } catch (
+        cleanupError: unknown
+      ) {
         this.logger.error(
-          `The new Cloudinary image could not be cleaned up after the database update failed for event ${id}.`,
+          `The new local poster could not be cleaned up after the database update failed for event ${id}.`,
+
           cleanupError instanceof Error
             ? cleanupError.stack
             : undefined,
@@ -414,7 +489,9 @@ export class EventsService {
   ) {
     const existingEvent =
       await this.prisma.event.findUnique({
-        where: { id },
+        where: {
+          id,
+        },
       });
 
     if (!existingEvent) {
@@ -423,12 +500,16 @@ export class EventsService {
       );
     }
 
-    let slug = existingEvent.slug;
+    let slug =
+      existingEvent.slug;
 
-    if (updateEventDto.title) {
-      slug = this.createSlug(
-        updateEventDto.title,
-      );
+    if (
+      updateEventDto.title
+    ) {
+      slug =
+        this.createSlug(
+          updateEventDto.title,
+        );
 
       const eventWithSameSlug =
         await this.prisma.event.findFirst({
@@ -441,7 +522,9 @@ export class EventsService {
           },
         });
 
-      if (eventWithSameSlug) {
+      if (
+        eventWithSameSlug
+      ) {
         throw new ConflictException(
           "An event with a similar title already exists",
         );
@@ -449,21 +532,27 @@ export class EventsService {
     }
 
     const updatedDate =
-      updateEventDto.date !== undefined
+      updateEventDto.date !==
+      undefined
         ? this.validateEventDate(
             updateEventDto.date,
           )
         : undefined;
 
     return this.prisma.event.update({
-      where: { id },
+      where: {
+        id,
+      },
 
       data: {
         ...updateEventDto,
+
         slug,
 
-        ...(updatedDate !== undefined && {
-          date: updatedDate,
+        ...(updatedDate !==
+          undefined && {
+          date:
+            updatedDate,
         }),
       },
     });
@@ -475,10 +564,14 @@ export class EventsService {
    * ============================================================
    */
 
-  async remove(id: number) {
+  async remove(
+    id: number,
+  ) {
     const existingEvent =
       await this.prisma.event.findUnique({
-        where: { id },
+        where: {
+          id,
+        },
       });
 
     if (!existingEvent) {
@@ -487,25 +580,47 @@ export class EventsService {
       );
     }
 
+    /*
+     * Delete the database event first.
+     *
+     * If Prisma fails, we keep the poster because
+     * the event still exists.
+     */
+
     await this.prisma.event.delete({
-      where: { id },
+      where: {
+        id,
+      },
     });
 
-    if (
-      existingEvent.heroImagePublicId
+    /*
+     * Database deletion succeeded.
+     *
+     * Delete its local poster.
+     *
+     * Old Cloudinary URLs are ignored automatically.
+     */
+
+    try {
+      await this.localImageStorageService.deleteEventPoster(
+        existingEvent.heroImageUrl,
+      );
+    } catch (
+      error: unknown
     ) {
-      try {
-        await this.cloudinaryService.deleteImage(
-          existingEvent.heroImagePublicId,
-        );
-      } catch (error: unknown) {
-        this.logger.warn(
-          `The hero image for deleted event ${id} could not be deleted from Cloudinary.`,
-          error instanceof Error
-            ? error.stack
-            : undefined,
-        );
-      }
+      /*
+       * Do not turn an already-successful database
+       * deletion into an API failure just because
+       * filesystem cleanup failed.
+       */
+
+      this.logger.warn(
+        `The local hero image for deleted event ${id} could not be deleted.`,
+
+        error instanceof Error
+          ? error.stack
+          : undefined,
+      );
     }
 
     return {
@@ -523,15 +638,20 @@ export class EventsService {
   findAllForAdmin() {
     return this.prisma.event.findMany({
       orderBy: {
-        createdAt: "desc",
+        createdAt:
+          "desc",
       },
     });
   }
 
-  async findOneForAdmin(id: number) {
+  async findOneForAdmin(
+    id: number,
+  ) {
     const event =
       await this.prisma.event.findUnique({
-        where: { id },
+        where: {
+          id,
+        },
       });
 
     if (!event) {
@@ -552,98 +672,185 @@ export class EventsService {
   private async ensureWebsiteSettings() {
     return this.prisma.websiteSettings.upsert({
       where: {
-        id: WEBSITE_SETTINGS_ID,
+        id:
+          WEBSITE_SETTINGS_ID,
       },
 
       update: {},
 
       create: {
-        id: WEBSITE_SETTINGS_ID,
+        id:
+          WEBSITE_SETTINGS_ID,
       },
     });
   }
 
-  private async resolveAutomaticHomepageEvent(
-    autoSwitchHours: number,
-  ) {
-    const now = new Date();
+  /*
+   * AUTO homepage selection.
+   *
+   * Events are ordered chronologically.
+   *
+   * Every event remains active until 21:00
+   * Thailand time on its event date.
+   *
+   * However, the switch can never happen
+   * before the actual event start time.
+   */
 
-    /*
-     * Example:
-     *
-     * autoSwitchHours = 8
-     * now = September 10 at 03:00
-     *
-     * cutoff = September 9 at 19:00
-     *
-     * Any event after the cutoff is either:
-     * - currently inside its retention period, or
-     * - a future event.
-     *
-     * Ordering ascending gives us the correct
-     * current/next event.
-     */
-    const cutoff = new Date(
-      now.getTime() -
-        autoSwitchHours *
-          60 *
-          60 *
-          1000,
-    );
+  private async resolveAutomaticHomepageEvent() {
+    const now =
+      new Date();
 
-    const event =
-      await this.prisma.event.findFirst({
+    const publishedEvents =
+      await this.prisma.event.findMany({
         where: {
-          status: EventStatus.PUBLISHED,
-
-          date: {
-            gt: cutoff,
-          },
+          status:
+            EventStatus.PUBLISHED,
         },
 
         orderBy: {
-          date: "asc",
+          date:
+            "asc",
         },
       });
 
-    if (event) {
-      const switchAt = new Date(
-        event.date.getTime() +
-          autoSwitchHours *
-            60 *
-            60 *
-            1000,
-      );
-
+    if (
+      publishedEvents.length ===
+      0
+    ) {
       return {
-        event,
+        event:
+          null,
+
         switchAt:
-          switchAt.toISOString(),
+          null,
       };
     }
 
-    /*
-     * If there is no current or future published event,
-     * keep the latest published event as a fallback.
-     *
-     * This prevents the homepage from suddenly having
-     * no event at all.
-     */
-    const fallbackEvent =
-      await this.prisma.event.findFirst({
-        where: {
-          status: EventStatus.PUBLISHED,
-        },
+    for (
+      const event of
+      publishedEvents
+    ) {
+      /*
+       * Fixed automatic switch time:
+       * 21:00 Asia/Bangkok on event day.
+       */
 
-        orderBy: {
-          date: "desc",
-        },
-      });
+      const configuredSwitchAt =
+        this.getHomepageSwitchTime(
+          event.date,
+        );
+
+      /*
+       * Safety:
+       *
+       * Never switch before the actual
+       * event start time.
+       */
+
+      const switchAt =
+        configuredSwitchAt.getTime() <
+        event.date.getTime()
+          ? event.date
+          : configuredSwitchAt;
+
+      if (
+        now.getTime() <
+        switchAt.getTime()
+      ) {
+        return {
+          event,
+
+          switchAt:
+            switchAt.toISOString(),
+        };
+      }
+    }
+
+    /*
+     * No current/future events remain.
+     *
+     * Keep the latest published event
+     * instead of making the homepage empty.
+     */
+
+    const fallbackEvent =
+      publishedEvents[
+        publishedEvents.length -
+        1
+      ];
 
     return {
-      event: fallbackEvent,
-      switchAt: null,
+      event:
+        fallbackEvent,
+
+      switchAt:
+        null,
     };
+  }
+
+  /*
+   * Calculate 21:00 on the event's
+   * calendar date in Thailand.
+   */
+
+  private getHomepageSwitchTime(
+    eventDate: Date,
+  ): Date {
+    const dateParts =
+      new Intl.DateTimeFormat(
+        "en-CA",
+        {
+          timeZone:
+            FESTIVAL_TIME_ZONE,
+
+          year:
+            "numeric",
+
+          month:
+            "2-digit",
+
+          day:
+            "2-digit",
+        },
+      ).formatToParts(
+        eventDate,
+      );
+
+    const year =
+      dateParts.find(
+        (part) =>
+          part.type ===
+          "year",
+      )?.value;
+
+    const month =
+      dateParts.find(
+        (part) =>
+          part.type ===
+          "month",
+      )?.value;
+
+    const day =
+      dateParts.find(
+        (part) =>
+          part.type ===
+          "day",
+      )?.value;
+
+    if (
+      !year ||
+      !month ||
+      !day
+    ) {
+      throw new BadRequestException(
+        "Homepage event switch date could not be calculated",
+      );
+    }
+
+    return new Date(
+      `${year}-${month}-${day}T21:00:00+07:00`,
+    );
   }
 
   /*
@@ -655,9 +862,10 @@ export class EventsService {
   private validateEventDate(
     dateValue: string,
   ): Date {
-    const eventDate = new Date(
-      dateValue,
-    );
+    const eventDate =
+      new Date(
+        dateValue,
+      );
 
     if (
       Number.isNaN(
@@ -679,7 +887,10 @@ export class EventsService {
         new Date(),
       );
 
-    if (eventDay < currentDay) {
+    if (
+      eventDay <
+      currentDay
+    ) {
       throw new BadRequestException(
         "Event date cannot be before the current day",
       );
@@ -698,28 +909,38 @@ export class EventsService {
           timeZone:
             FESTIVAL_TIME_ZONE,
 
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
+          year:
+            "numeric",
+
+          month:
+            "2-digit",
+
+          day:
+            "2-digit",
         },
-      ).formatToParts(date);
+      ).formatToParts(
+        date,
+      );
 
     const year =
       dateParts.find(
         (part) =>
-          part.type === "year",
+          part.type ===
+          "year",
       )?.value;
 
     const month =
       dateParts.find(
         (part) =>
-          part.type === "month",
+          part.type ===
+          "month",
       )?.value;
 
     const day =
       dateParts.find(
         (part) =>
-          part.type === "day",
+          part.type ===
+          "day",
       )?.value;
 
     if (
@@ -745,7 +966,9 @@ export class EventsService {
     title: string,
   ): string {
     return title
-      .normalize("NFD")
+      .normalize(
+        "NFD",
+      )
       .replace(
         /[\u0300-\u036f]/g,
         "",
