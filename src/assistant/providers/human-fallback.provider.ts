@@ -17,10 +17,12 @@ export class HumanFallbackProvider
     return true;
   }
 
-  async generateResponse(
-    _input: AssistantProviderInput,
+  generateResponse(
+    input: AssistantProviderInput,
   ): Promise<AssistantProviderResult> {
-    return {
+    void input;
+
+    return Promise.resolve({
       answer:
         "I'm sorry, but I couldn't confidently answer your question using the available festival information. Please use the Contact page so a member of the Waterfall Festival team can help you.",
       handledBy: "HUMAN_FALLBACK",
@@ -33,6 +35,6 @@ export class HumanFallbackProvider
         "What upcoming events are available?",
       ],
       sources: [],
-    };
+    });
   }
 }

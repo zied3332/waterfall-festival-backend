@@ -1140,10 +1140,10 @@ export class AdminGalleryController {
           `${uploadMarker}so_0,f_jpg,q_auto/`,
         );
 
-      return transformedUrl.replace(
-        /\.[^.\/]+$/,
-        ".jpg",
-      );
+     return transformedUrl.replace(
+  /\.[^./]+$/,
+  ".jpg",
+);
     } catch {
       return undefined;
     }

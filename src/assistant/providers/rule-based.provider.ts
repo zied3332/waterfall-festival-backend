@@ -49,7 +49,7 @@ export class RuleBasedProvider
     );
   }
 
-  async generateResponse(
+  generateResponse(
     input: AssistantProviderInput,
   ): Promise<AssistantProviderResult> {
     const generatedAnswer =
@@ -60,7 +60,7 @@ export class RuleBasedProvider
       );
 
     if (!generatedAnswer) {
-      return {
+      return Promise.resolve({
         answer: "",
         handledBy: "RULE_BASED",
         intent: input.intent,
@@ -68,7 +68,7 @@ export class RuleBasedProvider
         requiresHumanFollowUp: true,
         suggestions: [],
         sources: [],
-      };
+      });
     }
 
     const suggestions =
@@ -78,7 +78,7 @@ export class RuleBasedProvider
         message: input.message,
       });
 
-    return {
+    return Promise.resolve({
       answer: generatedAnswer.answer,
       handledBy: "RULE_BASED",
       intent: input.intent,
@@ -90,7 +90,7 @@ export class RuleBasedProvider
         this.sourceService.limitSources(
           generatedAnswer.sources,
         ),
-    };
+    });
   }
 
   private hasContextForIntent(

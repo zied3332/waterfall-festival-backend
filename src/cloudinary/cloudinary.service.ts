@@ -24,6 +24,10 @@ type CloudinaryResourceType =
   | "image"
   | "video";
 
+type CloudinaryDestroyResult = {
+  result?: string;
+};
+
 @Injectable()
 export class CloudinaryService {
   constructor(
@@ -46,7 +50,14 @@ export class CloudinaryService {
             },
             (error, result) => {
               if (error) {
-                reject(error);
+                reject(
+                  new Error(
+                    "Cloudinary upload failed.",
+                    {
+                      cause: error,
+                    },
+                  ),
+                );
                 return;
               }
 
@@ -73,7 +84,7 @@ export class CloudinaryService {
     resourceType: CloudinaryResourceType,
   ): Promise<void> {
     try {
-      const result =
+      const rawResult: unknown =
         await this.cloudinary.uploader.destroy(
           publicId,
           {
@@ -82,12 +93,25 @@ export class CloudinaryService {
           },
         );
 
+      const result: CloudinaryDestroyResult =
+        typeof rawResult === "object" &&
+        rawResult !== null &&
+        "result" in rawResult &&
+        typeof rawResult.result === "string"
+          ? {
+              result: rawResult.result,
+            }
+          : {};
+
+      const deletionResult =
+        result.result ?? "unknown";
+
       if (
-        result.result !== "ok" &&
-        result.result !== "not found"
+        deletionResult !== "ok" &&
+        deletionResult !== "not found"
       ) {
         throw new Error(
-          `Cloudinary deletion failed with result: ${result.result}`,
+          `Cloudinary deletion failed with result: ${deletionResult}`,
         );
       }
     } catch {

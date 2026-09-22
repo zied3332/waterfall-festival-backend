@@ -28,12 +28,15 @@ export class SettingsService {
     const settings =
       await this.findOrCreateSettings();
 
-    const {
-      escalationEmail: _escalationEmail,
-      createdAt: _createdAt,
-      updatedAt: _updatedAt,
-      ...publicSettings
-    } = settings;
+    const publicSettings: Partial<
+      typeof settings
+    > = {
+      ...settings,
+    };
+
+    delete publicSettings.escalationEmail;
+    delete publicSettings.createdAt;
+    delete publicSettings.updatedAt;
 
     return publicSettings;
   }

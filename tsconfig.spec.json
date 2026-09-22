@@ -4,9 +4,9 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ES2022",
-    "types": ["node", "jest"],
     "noEmit": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "types": ["node", "express", "multer", "jest"]
   },
   "include": [
     "src/**/*.ts",

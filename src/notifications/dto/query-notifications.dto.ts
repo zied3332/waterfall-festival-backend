@@ -1,4 +1,8 @@
-import { Transform, Type } from 'class-transformer';
+import {
+  Transform,
+  Type,
+} from "class-transformer";
+
 import {
   IsBoolean,
   IsEnum,
@@ -7,12 +11,12 @@ import {
   IsString,
   Max,
   Min,
-} from 'class-validator';
+} from "class-validator";
 
 import {
   NotificationPriority,
   NotificationType,
-} from '../../generated/prisma/enums.js';
+} from "../../generated/prisma/enums.js";
 
 export class QueryNotificationsDto {
   @IsOptional()
@@ -41,17 +45,29 @@ export class QueryNotificationsDto {
   priority?: NotificationPriority;
 
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === true || value === 'true') {
-      return true;
-    }
+  @Transform(
+    ({
+      value,
+    }: {
+      value: unknown;
+    }): unknown => {
+      if (
+        value === true ||
+        value === "true"
+      ) {
+        return true;
+      }
 
-    if (value === false || value === 'false') {
-      return false;
-    }
+      if (
+        value === false ||
+        value === "false"
+      ) {
+        return false;
+      }
 
-    return value;
-  })
+      return value;
+    },
+  )
   @IsBoolean()
   isRead?: boolean;
 }

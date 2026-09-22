@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
 
 jobs:
   build:
+    name: Lint, Test and Build
     runs-on: ubuntu-latest
 
     env:
@@ -33,6 +35,12 @@ jobs:
 
       - name: Generate Prisma Client
         run: npx prisma generate
+
+      - name: Run static analysis
+        run: npm run lint:check
+
+      - name: Run unit tests
+        run: npm test -- --runInBand
 
       - name: Build backend
         run: npm run build
