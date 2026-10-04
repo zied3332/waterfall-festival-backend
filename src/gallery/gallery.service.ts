@@ -3,17 +3,30 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 
-import { CloudinaryService } from "../cloudinary/cloudinary.service.js";
-import { PrismaService } from "../prisma/prisma.service.js";
+import {
+  PrismaService,
+} from "../prisma/prisma.service.js";
 
-import { CreateGalleryImageDto } from "./dto/create-gallery-image.dto.js";
-import { UpdateGalleryImageDto } from "./dto/update-gallery-image.dto.js";
+import {
+  LocalUploadService,
+} from "../uploads/local-upload.service.js";
+
+import {
+  CreateGalleryImageDto,
+} from "./dto/create-gallery-image.dto.js";
+
+import {
+  UpdateGalleryImageDto,
+} from "./dto/update-gallery-image.dto.js";
 
 @Injectable()
 export class GalleryService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly prisma:
+      PrismaService,
+
+    private readonly localUploadService:
+      LocalUploadService,
   ) {}
 
   async findPublished() {
@@ -151,7 +164,9 @@ export class GalleryService {
     });
   }
 
-  async findOne(id: number) {
+  async findOne(
+    id: number,
+  ) {
     const galleryItem =
       await this.prisma.galleryImage.findUnique({
         where: {
@@ -179,14 +194,17 @@ export class GalleryService {
   }
 
   async create(
-    createGalleryImageDto: CreateGalleryImageDto,
+    createGalleryImageDto:
+      CreateGalleryImageDto,
   ) {
     const {
       eventId,
       ...galleryData
     } = createGalleryImageDto;
 
-    await this.validateEvent(eventId);
+    await this.validateEvent(
+      eventId,
+    );
 
     return this.prisma.galleryImage.create({
       data: {
@@ -214,16 +232,21 @@ export class GalleryService {
 
   async update(
     id: number,
-    updateGalleryImageDto: UpdateGalleryImageDto,
+    updateGalleryImageDto:
+      UpdateGalleryImageDto,
   ) {
-    await this.ensureGalleryItemExists(id);
+    await this.ensureGalleryItemExists(
+      id,
+    );
 
     const {
       eventId,
       ...galleryData
     } = updateGalleryImageDto;
 
-    await this.validateEvent(eventId);
+    await this.validateEvent(
+      eventId,
+    );
 
     return this.prisma.galleryImage.update({
       where: {
@@ -251,7 +274,9 @@ export class GalleryService {
     });
   }
 
-  async remove(id: number) {
+  async remove(
+    id: number,
+  ) {
     const galleryItem =
       await this.prisma.galleryImage.findUnique({
         where: {
@@ -260,7 +285,6 @@ export class GalleryService {
 
         select: {
           id: true,
-          mediaType: true,
           publicId: true,
         },
       });
@@ -271,19 +295,21 @@ export class GalleryService {
       );
     }
 
-    if (galleryItem.publicId) {
-      if (
-        galleryItem.mediaType ===
-        "VIDEO"
-      ) {
-        await this.cloudinaryService.deleteVideo(
-          galleryItem.publicId,
-        );
-      } else {
-        await this.cloudinaryService.deleteImage(
-          galleryItem.publicId,
-        );
-      }
+    /*
+     * New locally uploaded files have public IDs such as:
+     *
+     * gallery/images/filename.webp
+     * gallery/videos/filename.mp4
+     *
+     * LocalUploadService intentionally ignores other
+     * public IDs, including legacy Cloudinary IDs.
+     */
+    if (
+      galleryItem.publicId
+    ) {
+      await this.localUploadService.deleteFile(
+        galleryItem.publicId,
+      );
     }
 
     return this.prisma.galleryImage.delete({
@@ -296,7 +322,9 @@ export class GalleryService {
   private async validateEvent(
     eventId?: number | null,
   ): Promise<void> {
-    if (eventId == null) {
+    if (
+      eventId == null
+    ) {
       return;
     }
 
