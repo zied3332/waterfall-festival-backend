@@ -35,24 +35,42 @@ import {
   ApiUnauthorizedResponse,
 } from "@nestjs/swagger";
 
-import { memoryStorage } from "multer";
+import {
+  memoryStorage,
+} from "multer";
 
-import { Roles } from "../../auth/decorators/roles.decorator.js";
-import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard.js";
-import { RolesGuard } from "../../auth/guards/roles.guard.js";
+import {
+  Roles,
+} from "../../auth/decorators/roles.decorator.js";
 
-import { CloudinaryService } from "../../cloudinary/cloudinary.service.js";
+import {
+  JwtAuthGuard,
+} from "../../auth/guards/jwt-auth.guard.js";
 
-import { UserRole } from "../../generated/prisma/enums.js";
+import {
+  RolesGuard,
+} from "../../auth/guards/roles.guard.js";
+
+import {
+  UserRole,
+} from "../../generated/prisma/enums.js";
+
+import {
+  LocalUploadService,
+} from "../../uploads/local-upload.service.js";
 
 import {
   GalleryImageResponseDto,
   GalleryUploadResponseDto,
 } from "../dto/gallery-image-response.dto.js";
 
-import { UpdateGalleryImageDto } from "../dto/update-gallery-image.dto.js";
+import {
+  UpdateGalleryImageDto,
+} from "../dto/update-gallery-image.dto.js";
 
-import { GalleryService } from "../gallery.service.js";
+import {
+  GalleryService,
+} from "../gallery.service.js";
 
 const MAX_IMAGE_SIZE =
   5 * 1024 * 1024;
@@ -104,7 +122,10 @@ const imageUploadOptions = {
       return;
     }
 
-    callback(null, true);
+    callback(
+      null,
+      true,
+    );
   },
 };
 
@@ -138,7 +159,10 @@ const videoUploadOptions = {
       return;
     }
 
-    callback(null, true);
+    callback(
+      null,
+      true,
+    );
   },
 };
 
@@ -198,7 +222,9 @@ function validateStatus(
   ];
 
   if (
-    !allowedStatuses.includes(status)
+    !allowedStatuses.includes(
+      status,
+    )
   ) {
     throw new BadRequestException(
       "Status must be DRAFT, PUBLISHED, or ARCHIVED.",
@@ -218,10 +244,13 @@ function parseNonNegativeInteger(
     return defaultValue;
   }
 
-  const parsedValue = Number(value);
+  const parsedValue =
+    Number(value);
 
   if (
-    !Number.isInteger(parsedValue) ||
+    !Number.isInteger(
+      parsedValue,
+    ) ||
     parsedValue < 0
   ) {
     throw new BadRequestException(
@@ -243,10 +272,13 @@ function parseOptionalPositiveInteger(
     return undefined;
   }
 
-  const parsedValue = Number(value);
+  const parsedValue =
+    Number(value);
 
   if (
-    !Number.isInteger(parsedValue) ||
+    !Number.isInteger(
+      parsedValue,
+    ) ||
     parsedValue <= 0
   ) {
     throw new BadRequestException(
@@ -261,15 +293,21 @@ function parseBoolean(
   value: string | undefined,
   defaultValue = false,
 ): boolean {
-  if (value === undefined) {
+  if (
+    value === undefined
+  ) {
     return defaultValue;
   }
 
-  if (value === "true") {
+  if (
+    value === "true"
+  ) {
     return true;
   }
 
-  if (value === "false") {
+  if (
+    value === "false"
+  ) {
     return false;
   }
 
@@ -278,8 +316,12 @@ function parseBoolean(
   );
 }
 
-@ApiTags("Admin Gallery")
-@ApiBearerAuth("access-token")
+@ApiTags(
+  "Admin Gallery",
+)
+@ApiBearerAuth(
+  "access-token",
+)
 @ApiUnauthorizedResponse({
   description:
     "A valid administrator JWT access token is required.",
@@ -288,42 +330,53 @@ function parseBoolean(
   description:
     "The authenticated user does not have administrator permission.",
 })
-@Controller("admin/gallery")
+@Controller(
+  "admin/gallery",
+)
 @UseGuards(
   JwtAuthGuard,
   RolesGuard,
 )
-@Roles(UserRole.ADMIN)
+@Roles(
+  UserRole.ADMIN,
+)
 export class AdminGalleryController {
   constructor(
     private readonly galleryService:
       GalleryService,
 
-    private readonly cloudinaryService:
-      CloudinaryService,
+    private readonly localUploadService:
+      LocalUploadService,
   ) {}
 
   @Get()
   @ApiOperation({
     summary:
       "List all gallery media",
+
     description:
       "Returns all gallery images and videos for administration, including draft, published, and archived media.",
   })
   @ApiOkResponse({
     description:
       "Gallery media returned successfully.",
-    type: GalleryImageResponseDto,
+
+    type:
+      GalleryImageResponseDto,
+
     isArray: true,
   })
   findAll() {
     return this.galleryService.findAll();
   }
 
-  @Get(":id")
+  @Get(
+    ":id",
+  )
   @ApiOperation({
     summary:
       "Get gallery media by ID",
+
     description:
       "Returns one gallery image or video for viewing or editing in the administration dashboard.",
   })
@@ -332,13 +385,16 @@ export class AdminGalleryController {
     type: Number,
     required: true,
     example: 25,
+
     description:
       "Unique numeric gallery-media identifier.",
   })
   @ApiOkResponse({
     description:
       "Gallery media returned successfully.",
-    type: GalleryImageResponseDto,
+
+    type:
+      GalleryImageResponseDto,
   })
   @ApiBadRequestResponse({
     description:
@@ -360,10 +416,13 @@ export class AdminGalleryController {
     );
   }
 
-  @Patch(":id")
+  @Patch(
+    ":id",
+  )
   @ApiOperation({
     summary:
       "Update gallery media",
+
     description:
       "Updates gallery image or video metadata, publishing status, featured state, homepage-reel state, display order, or associated event.",
   })
@@ -372,13 +431,16 @@ export class AdminGalleryController {
     type: Number,
     required: true,
     example: 25,
+
     description:
       "Unique numeric gallery-media identifier.",
   })
   @ApiOkResponse({
     description:
       "Gallery media updated successfully.",
-    type: GalleryImageResponseDto,
+
+    type:
+      GalleryImageResponseDto,
   })
   @ApiBadRequestResponse({
     description:
@@ -405,25 +467,31 @@ export class AdminGalleryController {
     );
   }
 
-  @Delete(":id")
+  @Delete(
+    ":id",
+  )
   @ApiOperation({
     summary:
       "Delete gallery media",
+
     description:
-      "Deletes a gallery media record and its associated Cloudinary image or video when a public ID is available.",
+      "Deletes a gallery media record and its associated locally stored image or video when a local public ID is available.",
   })
   @ApiParam({
     name: "id",
     type: Number,
     required: true,
     example: 25,
+
     description:
       "Unique numeric gallery-media identifier.",
   })
   @ApiOkResponse({
     description:
       "Gallery media deleted successfully.",
-    type: GalleryImageResponseDto,
+
+    type:
+      GalleryImageResponseDto,
   })
   @ApiBadRequestResponse({
     description:
@@ -445,148 +513,15 @@ export class AdminGalleryController {
     );
   }
 
-  @Post("test-upload")
-  @ApiOperation({
-    summary:
-      "Test a single Cloudinary image upload",
-    description:
-      "Uploads one image directly to Cloudinary without creating a gallery database record.",
-  })
-  @ApiConsumes(
-    "multipart/form-data",
+  @Post(
+    "upload",
   )
-  @ApiBody({
-    required: true,
-
-    schema: {
-      type: "object",
-
-      required: [
-        "image",
-      ],
-
-      properties: {
-        image: {
-          type: "string",
-          format: "binary",
-          description:
-            "JPG, PNG, or WebP image. Maximum size: 5 MB.",
-        },
-      },
-    },
-  })
-  @ApiCreatedResponse({
-    description:
-      "Image uploaded to Cloudinary successfully.",
-
-    schema: {
-      type: "object",
-
-      properties: {
-        success: {
-          type: "boolean",
-          example: true,
-        },
-
-        image: {
-          type: "object",
-
-          properties: {
-            url: {
-              type: "string",
-              format: "uri",
-            },
-
-            publicId: {
-              type: "string",
-            },
-
-            width: {
-              type: "integer",
-            },
-
-            height: {
-              type: "integer",
-            },
-
-            format: {
-              type: "string",
-            },
-
-            bytes: {
-              type: "integer",
-            },
-
-            originalFilename: {
-              type: "string",
-            },
-          },
-        },
-      },
-    },
-  })
-  @ApiBadRequestResponse({
-    description:
-      "No image was supplied or the file format is unsupported.",
-  })
-  @ApiPayloadTooLargeResponse({
-    description:
-      "The uploaded image exceeds the 5 MB limit.",
-  })
-  @UseInterceptors(
-    FileInterceptor(
-      "image",
-      imageUploadOptions,
-    ),
-  )
-  async testUpload(
-    @UploadedFile()
-    file?: Express.Multer.File,
-  ) {
-    if (!file) {
-      throw new BadRequestException(
-        'Please upload an image using the "image" field.',
-      );
-    }
-
-    const result =
-      await this.cloudinaryService.uploadImage(
-        file,
-      );
-
-    return {
-      success: true,
-
-      image: {
-        url: result.secure_url,
-
-        publicId:
-          result.public_id,
-
-        width:
-          result.width,
-
-        height:
-          result.height,
-
-        format:
-          result.format,
-
-        bytes:
-          result.bytes,
-
-        originalFilename:
-          result.original_filename,
-      },
-    };
-  }
-
-  @Post("upload")
   @ApiOperation({
     summary:
       "Upload gallery images",
+
     description:
-      "Uploads between 1 and 10 images to Cloudinary and creates one gallery database record for each uploaded image.",
+      "Uploads between 1 and 10 images to local server storage and creates one gallery database record for each uploaded image.",
   })
   @ApiConsumes(
     "multipart/form-data",
@@ -607,6 +542,7 @@ export class AdminGalleryController {
           type: "array",
 
           minItems: 1,
+
           maxItems:
             MAX_UPLOAD_IMAGES,
 
@@ -689,7 +625,7 @@ export class AdminGalleryController {
   })
   @ApiCreatedResponse({
     description:
-      "Images uploaded and gallery records created successfully.",
+      "Images uploaded to local server storage and gallery records created successfully.",
 
     type:
       GalleryUploadResponseDto,
@@ -723,13 +659,17 @@ export class AdminGalleryController {
     body:
       GalleryUploadBody,
   ) {
-    if (!files?.length) {
+    if (
+      !files?.length
+    ) {
       throw new BadRequestException(
         'Please upload at least one image using the "images" field.',
       );
     }
 
-    if (!body.title?.trim()) {
+    if (
+      !body.title?.trim()
+    ) {
       throw new BadRequestException(
         "Title is required.",
       );
@@ -757,7 +697,7 @@ export class AdminGalleryController {
       );
 
     const uploadResults =
-      await this.cloudinaryService.uploadGalleryImages(
+      await this.localUploadService.uploadGalleryImages(
         files,
       );
 
@@ -792,16 +732,10 @@ export class AdminGalleryController {
                   undefined,
 
                 imageUrl:
-                  uploadResult.secure_url,
+                  uploadResult.url,
 
                 publicId:
-                  uploadResult.public_id,
-
-                width:
-                  uploadResult.width,
-
-                height:
-                  uploadResult.height,
+                  uploadResult.publicId,
 
                 altText:
                   body.altText
@@ -843,12 +777,15 @@ export class AdminGalleryController {
     };
   }
 
-  @Post("upload/video")
+  @Post(
+    "upload/video",
+  )
   @ApiOperation({
     summary:
       "Upload a gallery video",
+
     description:
-      "Uploads one MP4, WebM, or MOV video to Cloudinary and creates a gallery media record. The administrator can optionally publish the video and include it in the homepage reels carousel.",
+      "Uploads one MP4, WebM, or MOV video to local server storage and creates a gallery media record. The administrator can optionally publish the video and include it in the homepage reels carousel.",
   })
   @ApiConsumes(
     "multipart/form-data",
@@ -970,7 +907,7 @@ export class AdminGalleryController {
   })
   @ApiCreatedResponse({
     description:
-      "Video uploaded and gallery media record created successfully.",
+      "Video uploaded to local server storage and gallery media record created successfully.",
 
     type:
       GalleryImageResponseDto,
@@ -1003,13 +940,17 @@ export class AdminGalleryController {
     body:
       GalleryVideoUploadBody,
   ) {
-    if (!file) {
+    if (
+      !file
+    ) {
       throw new BadRequestException(
         'Please upload a video using the "video" field.',
       );
     }
 
-    if (!body.title?.trim()) {
+    if (
+      !body.title?.trim()
+    ) {
       throw new BadRequestException(
         "Title is required.",
       );
@@ -1048,19 +989,8 @@ export class AdminGalleryController {
       );
 
     const uploadResult =
-      await this.cloudinaryService.uploadGalleryVideo(
+      await this.localUploadService.uploadGalleryVideo(
         file,
-      );
-
-    /*
-     * Cloudinary can generate a JPEG poster
-     * from the first frame of the uploaded
-     * video by changing the extension and
-     * adding a video transformation.
-     */
-    const thumbnailUrl =
-      this.createVideoThumbnailUrl(
-        uploadResult.secure_url,
       );
 
     return this.galleryService.create({
@@ -1076,24 +1006,22 @@ export class AdminGalleryController {
         undefined,
 
       imageUrl:
-        uploadResult.secure_url,
+        uploadResult.url,
 
       publicId:
-        uploadResult.public_id,
+        uploadResult.publicId,
 
-      thumbnailUrl,
+      thumbnailUrl:
+        undefined,
 
       duration:
-        typeof uploadResult.duration ===
-        "number"
-          ? uploadResult.duration
-          : undefined,
+        undefined,
 
       width:
-        uploadResult.width,
+        undefined,
 
       height:
-        uploadResult.height,
+        undefined,
 
       altText:
         body.altText
@@ -1117,35 +1045,5 @@ export class AdminGalleryController {
       eventId:
         parsedEventId,
     });
-  }
-
-  private createVideoThumbnailUrl(
-    videoUrl: string,
-  ): string | undefined {
-    try {
-      const uploadMarker =
-        "/video/upload/";
-
-      if (
-        !videoUrl.includes(
-          uploadMarker,
-        )
-      ) {
-        return undefined;
-      }
-
-      const transformedUrl =
-        videoUrl.replace(
-          uploadMarker,
-          `${uploadMarker}so_0,f_jpg,q_auto/`,
-        );
-
-     return transformedUrl.replace(
-  /\.[^./]+$/,
-  ".jpg",
-);
-    } catch {
-      return undefined;
-    }
   }
 }
