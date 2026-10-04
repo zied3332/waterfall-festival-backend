@@ -1,9 +1,28 @@
-import { jest } from '@jest/globals';
-import { Test, TestingModule } from '@nestjs/testing';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from '@jest/globals';
 
-import { CloudinaryService } from '../cloudinary/cloudinary.service.js';
-import { PrismaService } from '../prisma/prisma.service.js';
-import { GalleryService } from './gallery.service.js';
+import {
+  Test,
+  TestingModule,
+} from '@nestjs/testing';
+
+import {
+  PrismaService,
+} from '../prisma/prisma.service.js';
+
+import {
+  LocalUploadService,
+} from '../uploads/local-upload.service.js';
+
+import {
+  GalleryService,
+} from './gallery.service.js';
 
 describe('GalleryService', () => {
   let service: GalleryService;
@@ -22,29 +41,32 @@ describe('GalleryService', () => {
     },
   };
 
-  const cloudinaryServiceMock = {
-    deleteImage: jest.fn(),
-    deleteVideo: jest.fn(),
+  const localUploadServiceMock = {
+    deleteFile: jest.fn(),
   };
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
+    const module: TestingModule =
+      await Test.createTestingModule({
+        providers: [
+          GalleryService,
+
+          {
+            provide: PrismaService,
+            useValue: prismaMock,
+          },
+
+          {
+            provide: LocalUploadService,
+            useValue: localUploadServiceMock,
+          },
+        ],
+      }).compile();
+
+    service =
+      module.get<GalleryService>(
         GalleryService,
-
-        {
-          provide: PrismaService,
-          useValue: prismaMock,
-        },
-
-        {
-          provide: CloudinaryService,
-          useValue: cloudinaryServiceMock,
-        },
-      ],
-    }).compile();
-
-    service = module.get<GalleryService>(GalleryService);
+      );
   });
 
   afterEach(() => {
