@@ -1,5 +1,6 @@
 import { CpanelError } from './cpanel-client.service.js';
 import type { HostingStorageStatsDto } from './hosting-storage.dto.js';
+import { cpanelErrorHint, cpanelHintCode } from './cpanel-diagnostics.js';
 
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -38,8 +39,7 @@ export function normalizeCpanelDiskUsage(value: unknown): Omit<HostingStorageSta
     if (result.status !== 0 && result.status !== '0') throw new CpanelError('invalid_response');
     // Inspect upstream text only for classification. Never return or log it.
     const errors = Array.isArray(result.errors) ? result.errors.filter(error => typeof error === 'string').join(' ') : '';
-    throw new CpanelError(/permission|denied|unauthori[sz]ed|privilege|access/i.test(errors) ? 'permission_denied'
-      : /unsupported|not supported|unknown function|not available|disabled/i.test(errors) ? 'unsupported_metrics' : 'upstream_error');
+    throw new CpanelError(cpanelHintCode(cpanelErrorHint(errors)));
   }
   if (!Array.isArray(result.data)) throw new CpanelError('invalid_response');
   const rows = result.data.map(record).filter(row => row?.id === 'diskusage' || row?.name === 'diskusage');

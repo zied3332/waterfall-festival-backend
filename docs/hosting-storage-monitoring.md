@@ -110,6 +110,12 @@ null measurement values. Upstream error text is not exposed.
 
 ## Live verification result
 
+Subsequent [403 investigation](./cpanel-403-investigation.md) found a non-JSON,
+pre-UAPI access-denied response. The current client classifies an ambiguous 403
+as `access_restricted`; the `permission_denied` example below records the original
+probe before that diagnostic refinement. Explicit permission failures retain
+`permission_denied`. The investigation includes the safe one-shot diagnostic.
+
 The local environment contained all three required configuration values. A
 read-only live request to the configured account returned upstream HTTP 403.
 A second check through the new local NestJS endpoint, using isolated local JWT

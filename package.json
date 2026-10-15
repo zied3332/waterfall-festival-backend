@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "build": "prisma generate && nest build",
+    "diagnose:cpanel": "node dist/src/storage/cpanel-diagnostic-command.js",
     "postinstall": "prisma generate",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

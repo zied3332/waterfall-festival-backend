@@ -76,13 +76,40 @@ describe('Secure cPanel read-only client', () => {
     expect(await publicCpanelAddress('fixture.test')).toBe('93.184.216.34');
   });
 
-  it.each([{ status: 401, code: 'authentication_failed' }, { status: 403, code: 'permission_denied' }, { status: 302, code: 'unexpected_redirect' }, { status: 404, code: 'unsupported_metrics' }, { status: 500, code: 'upstream_error' }])('classifies HTTP $status without exposing the upstream body or following redirects', async fixture => {
+  it.each([{ status: 401, code: 'authentication_failed' }, { status: 403, code: 'access_restricted' }, { status: 400, code: 'invalid_request' }, { status: 302, code: 'unexpected_redirect' }, { status: 404, code: 'unsupported_metrics' }, { status: 500, code: 'upstream_error' }])('classifies HTTP $status without exposing the upstream body or following redirects', async fixture => {
     status = fixture.status; body = `secret ${token}`;
     const failure = await client().getDiskUsage().catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(CpanelError);
     expect(failure).toMatchObject({ code: fixture.code });
     expect(String(failure)).not.toContain(token);
     expect(requestMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { text: 'Access denied.\n', code: 'access_restricted', hint: 'access_denied' },
+    { text: '{"errors":["API token is invalid"],"status":0,"data":null}', code: 'authentication_failed', hint: 'authentication_rejected' },
+    { text: '{"errors":["Permission denied"],"status":0,"data":null}', code: 'permission_denied', hint: 'permission_rejected' },
+    { text: 'Missing required parameter display', code: 'invalid_request', hint: 'invalid_request' },
+    { text: 'Unknown function', code: 'unsupported_metrics', hint: 'unsupported_function' },
+  ])('distinguishes HTTP 403 with $hint', async fixture => {
+    status = 403; body = fixture.text;
+    const failure: unknown = await client().getDiskUsage().catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: fixture.code, diagnostics: { httpStatus: 403, errorHint: fixture.hint, contentType: 'json' } });
+    expect(JSON.stringify(failure)).not.toContain(fixture.text);
+  });
+
+  it('recognizes a JSON-labelled plaintext denial without pretending it is a UAPI error', async () => {
+    status = 403; body = 'Access denied.\n';
+    await expect(client().getDiskUsage()).rejects.toMatchObject({
+      code: 'access_restricted', diagnostics: { httpStatus: 403, jsonParseable: false, uapiStatus: null, bodyTruncated: false },
+    });
+  });
+
+  it('bounds non-200 response inspection without retaining an oversized error body', async () => {
+    status = 403; body = 'x'.repeat(65537) + token;
+    const failure: unknown = await client().getDiskUsage().catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: 'access_restricted', diagnostics: { httpStatus: 403, bodyTruncated: true } });
+    expect(JSON.stringify(failure)).not.toContain(token);
   });
 
   it('rejects HTML, malformed JSON and oversized responses', async () => {

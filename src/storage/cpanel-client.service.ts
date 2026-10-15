@@ -3,11 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { BlockList, isIP } from 'node:net';
+import { TLSSocket } from 'node:tls';
+import { cpanelHttpErrorCode, cpanelResponseDiagnostics, type CpanelResponseDiagnostics } from './cpanel-diagnostics.js';
 
-export type CpanelErrorCode = 'not_configured' | 'invalid_configuration' | 'unsafe_destination' | 'authentication_failed' | 'permission_denied' | 'timeout' | 'network_error' | 'invalid_response' | 'unsupported_metrics' | 'upstream_error' | 'unexpected_redirect';
+export type CpanelErrorCode = 'not_configured' | 'invalid_configuration' | 'unsafe_destination' | 'authentication_failed' | 'permission_denied' | 'access_restricted' | 'invalid_request' | 'timeout' | 'network_error' | 'invalid_response' | 'unsupported_metrics' | 'upstream_error' | 'unexpected_redirect';
 
 export class CpanelError extends Error {
-  constructor(readonly code: CpanelErrorCode) { super(`cPanel metrics: ${code}`); }
+  constructor(readonly code: CpanelErrorCode, readonly diagnostics?: CpanelResponseDiagnostics) { super(`cPanel metrics: ${code}`); }
 }
 
 const privateAddresses = new BlockList();
@@ -53,11 +55,24 @@ export class CpanelHttpService {
         },
       }, response => {
         const status = response.statusCode ?? 0;
+        const tlsAuthorized = response.socket instanceof TLSSocket ? response.socket.authorized : null;
         if (status !== 200) {
-          response.resume();
-          const code = status === 401 ? 'authentication_failed' : status === 403 ? 'permission_denied'
-            : status >= 300 && status < 400 ? 'unexpected_redirect' : status === 404 ? 'unsupported_metrics' : 'upstream_error';
-          reject(new CpanelError(code)); return;
+          // Inspect a bounded error body only to derive fixed classifications.
+          // Never retain raw headers, cookies, URLs, or upstream response text.
+          let bytes = 0;
+          const chunks: Buffer[] = [];
+          const fail = (truncated: boolean) => {
+            const diagnostics = cpanelResponseDiagnostics(status, response.headers, Buffer.concat(chunks).toString('utf8'), bytes, truncated, tlsAuthorized);
+            reject(new CpanelError(cpanelHttpErrorCode(status, diagnostics), diagnostics));
+          };
+          response.on('data', (chunk: Buffer) => {
+            bytes += chunk.length;
+            if (bytes > 65536) { fail(true); req.destroy(); return; }
+            chunks.push(chunk);
+          });
+          response.on('error', () => reject(new CpanelError('network_error')));
+          response.on('end', () => fail(false));
+          return;
         }
         if (!response.headers['content-type']?.toLowerCase().includes('application/json')) {
           response.resume(); reject(new CpanelError('invalid_response')); return;
