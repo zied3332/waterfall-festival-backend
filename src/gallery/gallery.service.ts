@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -235,6 +236,11 @@ export class GalleryService {
     updateGalleryImageDto:
       UpdateGalleryImageDto,
   ) {
+    for (const field of ['imageUrl', 'publicId', 'thumbnailUrl', 'mediaType']) {
+      if (Object.prototype.hasOwnProperty.call(updateGalleryImageDto, field)) {
+        throw new BadRequestException('Storage references and media type cannot be changed through metadata updates.');
+      }
+    }
     await this.ensureGalleryItemExists(
       id,
     );
