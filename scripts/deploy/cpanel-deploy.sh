@@ -37,10 +37,9 @@ setsid ssh-add "$RUNNER_TEMP/deploy_key" < /dev/null
 activate='source "$HOME/nodevenv/waterfall-backend/22/bin/activate"'
 settings="BACKEND_BACKUP_KEEP=$BACKEND_BACKUP_KEEP BACKEND_DEPLOY_RESERVE_MB=$BACKEND_DEPLOY_RESERVE_MB BACKEND_DEPLOY_RESERVE_INODES=$BACKEND_DEPLOY_RESERVE_INODES"
 sizes="$archiveBytes $sourceBytes $sourceFiles"
-# Read-only remote quota checks run BEFORE uploading anything or creating a backup.
+# Supplementary filesystem checks run before upload. They do not prove account quota headroom.
 if ! "${remote[@]}" "set -e; $activate; $settings node --input-type=module - --preflight $sizes" < scripts/deploy/backend-deploy.mjs; then
-  echo 'Storage preflight failed. Read-only inspection of the earlier failed backup follows; nothing will be deleted.' >&2
-  "${remote[@]}" "set -e; $activate; node --input-type=module - --inspect-backup" < scripts/deploy/backend-deploy.mjs || echo 'Read-only backup inspection unavailable; ask hosting support to inspect it.' >&2
+  echo 'Filesystem preflight failed; deployment stopped before upload. Nothing was deleted.' >&2
   exit 1
 fi
 "${remote[@]}" "umask 077; mkdir -- \"\$HOME/$incoming\""

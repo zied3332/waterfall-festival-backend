@@ -16,34 +16,13 @@ import {
   codeManifest,
   archiveCode,
   run,
-  accountHeadroom,
-  readAccountQuotas as actualReadAccountQuotas,
-  commandOutputDiagnostics,
-  inspectUapiOptions,
-  inspectUapiBinary,
-  inspectLegacyBackup,
   checkHeadroom,
   preflight,
   retentionReport,
   deploy,
 } from '../scripts/deploy/backend-deploy.mjs';
-const readAccountQuotas = (
-  execute,
-  executable,
-  metrics,
-  accountUser = 'fixture_user',
-) => actualReadAccountQuotas(execute, executable, metrics, accountUser);
 const revision = 'a'.repeat(40);
 const sizes = { archiveBytes: 100, sourceBytes: 100, sourceFiles: 10 };
-const quotas = {
-  result: {
-    status: 1,
-    data: [
-      { id: 'diskusage', _count: '100', _max: '10000', units: 'MB' },
-      { id: 'fileusage', _count: '100', _max: '300000', units: '' },
-    ],
-  },
-};
 async function fixture(t) {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), 'waterfall-deploy-test-')),
@@ -87,6 +66,8 @@ async function fixture(t) {
       'src/logs/error.log',
       'src/.cache/cache',
       'prisma/dump.sql',
+      'src/backup.db',
+      'src/state.sqlite3',
     ])
       await put(base, name, 'persistent-private-marker');
   }
@@ -107,7 +88,9 @@ test('archive includes runtime and migration SQL; excludes secrets, uploads, dep
   assert.ok(manifest.files.includes('dist/src/main.js'));
   assert.ok(
     !manifest.files.some((name) =>
-      /node_modules|uploads|\.env|logs|cache|dump/.test(name),
+      /node_modules|uploads|\.env|logs|cache|dump|backup\.db|state\.sqlite3/.test(
+        name,
+      ),
     ),
   );
   assert.ok(
@@ -116,37 +99,27 @@ test('archive includes runtime and migration SQL; excludes secrets, uploads, dep
     ),
   );
 });
-test('byte and inode quotas are distinguished, malformed measurements rejected', () => {
-  assert.deepEqual(accountHeadroom(quotas), {
-    accountBytes: 9900 * 1024 ** 2,
-    accountInodes: 299900,
-  });
+test('filesystem byte and inode checks reject shortages and invalid measurements', () => {
+  const available = { filesystemBytes: 100, filesystemInodes: 100 };
   assert.throws(
-    () => accountHeadroom({ result: { status: 1, data: [] } }),
-    /unavailable/,
+    () => checkHeadroom({ ...available, filesystemBytes: 0 }, 10, 10),
+    /FILESYSTEM BYTE/,
   );
-  const available = {
-    accountBytes: 100,
-    accountInodes: 100,
-    filesystemBytes: 100,
-    filesystemInodes: 100,
-  };
-  for (const [key, message] of [
-    ['accountBytes', /ACCOUNT DISK/],
-    ['accountInodes', /ACCOUNT INODE/],
-    ['filesystemBytes', /FILESYSTEM BYTE/],
-    ['filesystemInodes', /FILESYSTEM INODE/],
-  ])
-    assert.throws(
-      () => checkHeadroom({ ...available, [key]: 0 }, 10, 10),
-      message,
-    );
+  assert.throws(
+    () => checkHeadroom({ ...available, filesystemInodes: 0 }, 10, 10),
+    /FILESYSTEM INODE/,
+  );
   assert.throws(
     () => checkHeadroom({ ...available, filesystemInodes: undefined }, 10, 10),
     /Invalid/,
   );
+  assert.throws(
+    () => checkHeadroom({ ...available, filesystemBytes: NaN }, 10, 10),
+    /Invalid/,
+  );
 });
-test('preflight is read-only and fails closed when account measurements are unavailable', async (t) => {
+
+test('preflight only measures filesystem headroom, warns about account quotas and writes nothing', async (t) => {
   const { root } = await fixture(t);
   const before = await readdir(root);
   const settings = {
@@ -154,8 +127,9 @@ test('preflight is read-only and fails closed when account measurements are unav
     BACKEND_DEPLOY_RESERVE_INODES: 1,
   };
   const dependencies = {
-    accountUser: 'fixture_user',
-    run: () => JSON.stringify(quotas),
+    run: () => {
+      throw Error('External quota command must never run');
+    },
     statfs: async () => ({
       files: 100000,
       ffree: 100000,
@@ -163,13 +137,21 @@ test('preflight is read-only and fails closed when account measurements are unav
       bsize: 4096,
     }),
   };
-  assert.equal(
-    (await preflight(root, sizes, settings, dependencies)).status,
-    'ok',
-  );
+  const result = await preflight(root, sizes, settings, dependencies);
+  assert.equal(result.status, 'ok');
+  assert.equal(result.accountQuotaVerified, false);
+  assert.equal(result.scope, 'filesystem_only');
+  assert.match(result.warning, /does not prove/);
+  assert.equal(result.accountBytes, undefined);
+  assert.equal(result.accountInodes, undefined);
   await assert.rejects(
-    preflight(root, sizes, settings, { ...dependencies, run: () => '{}' }),
-    /Cannot verify ACCOUNT/,
+    preflight(root, sizes, settings, {
+      ...dependencies,
+      statfs: async () => {
+        throw Error('private path');
+      },
+    }),
+    /Filesystem headroom measurement unavailable/,
   );
   await assert.rejects(
     preflight(root, sizes, settings, {
@@ -183,8 +165,21 @@ test('preflight is read-only and fails closed when account measurements are unav
     }),
     /FILESYSTEM INODE/,
   );
+  await assert.rejects(
+    preflight(root, sizes, settings, {
+      ...dependencies,
+      statfs: async () => ({
+        files: 100,
+        ffree: 100000,
+        bavail: 0,
+        bsize: 4096,
+      }),
+    }),
+    /FILESYSTEM BYTE/,
+  );
   assert.deepEqual(await readdir(root), before);
 });
+
 test('retention reports excess and legacy entries without deleting backups', async (t) => {
   const { root } = await fixture(t);
   const backups = join(root, 'waterfall-backups');
@@ -218,6 +213,11 @@ for (const failure of [
     const calls = [];
     const execute = (command, args, options) => {
       calls.push([command, ...args]);
+      if (command === 'npm') {
+        assert.notEqual(options.cwd, app);
+        assert.ok(options.cwd.startsWith(join(root, 'waterfall-releases')));
+      }
+
       if (command === 'tar') {
         if (failure === 'backup' && args[0] === '-czf')
           throw new Error('tar: account quota exceeded');
@@ -384,227 +384,54 @@ test('child process failures report quota category without exposing stderr secre
   );
 });
 
-test('quota probe distinguishes sanitized command failures without exposing stderr or arbitrary error fields', () => {
-  for (const [spawnCode, category] of [
-    ['ENOENT', 'command_or_interpreter_unavailable'],
-    ['EACCES', 'execution_denied'],
-    ['EPERM', 'execution_denied'],
-    ['ETIMEDOUT', 'command_timeout'],
-    [null, 'command_failed'],
-  ]) {
-    assert.throws(
-      () =>
-        readAccountQuotas(() => {
-          const error = Error('SECRET-CREDENTIAL-FIXTURE');
-          error.diagnostics = {
-            spawnCode,
-            exitStatus: 1,
-            category: ['EACCES', 'EPERM'].includes(spawnCode)
-              ? 'permission_denied'
-              : 'command failed',
-            arbitrary: 'SECRET-CREDENTIAL-FIXTURE',
-          };
-          throw error;
-        }),
-      (error) =>
-        error.diagnostics.category === category &&
-        !error.message.includes('SECRET-CREDENTIAL-FIXTURE'),
-    );
-  }
-  assert.throws(
-    () => run('waterfall-test-command-does-not-exist', []),
-    (error) => error.diagnostics.spawnCode === 'ENOENT',
-  );
-});
-
-test('quota probe differentiates malformed data, API rejection and unsupported metrics', () => {
-  const cases = [
-    ['not-json SECRET-CREDENTIAL-FIXTURE', 'invalid_json'],
-    [
-      JSON.stringify({
-        result: {
-          status: 0,
-          errors: ['Permission denied SECRET-CREDENTIAL-FIXTURE'],
-        },
-      }),
-      'uapi_rejected',
-    ],
-    ['{}', 'invalid_envelope'],
-    [
-      JSON.stringify({
-        result: { status: 1, data: [null, quotas.result.data[0]] },
-      }),
-      'missing_metrics',
-    ],
-    [
-      JSON.stringify({
-        result: {
-          status: 1,
-          data: [
-            quotas.result.data[0],
-            {
-              id: 'fileusage',
-              count: 'bad SECRET-CREDENTIAL-FIXTURE',
-              max: 10,
-            },
-          ],
-        },
-      }),
-      'invalid_metric_values',
-    ],
-  ];
-  for (const [payload, category] of cases)
-    assert.throws(
-      () => readAccountQuotas(() => payload),
-      (error) =>
-        error.diagnostics.category === category &&
-        !error.message.includes('SECRET-CREDENTIAL-FIXTURE'),
-    );
-  assert.deepEqual(
-    readAccountQuotas(() => JSON.stringify(quotas)),
-    accountHeadroom(quotas),
-  );
-  assert.deepEqual(
-    accountHeadroom({ result: { ...quotas.result, status: '1' } }),
-    accountHeadroom(quotas),
-  );
-});
-
-test('legacy backup inspection measures only the fixed failed directory and never deletes it', async (t) => {
-  const { root } = await fixture(t);
-  assert.equal((await inspectLegacyBackup(root)).status, 'absent');
-  const backup = join(root, 'waterfall-backups/backend-20261015-090000');
-  await mkdir(backup, { recursive: true });
-  await writeFile(join(backup, 'keep'), 'unchanged');
-  const calls = [];
-  const report = await inspectLegacyBackup(root, (command, args) => {
-    calls.push([command, ...args]);
-    assert.equal(command, 'du');
-    assert.equal(args.at(-1), backup);
-    return `${args[0] === '-sk' ? 123 : 7}\tprivate-path-not-logged\n`;
-  });
-  assert.equal(report.allocatedBytes, 123 * 1024);
-  assert.equal(report.inodeCount, 7);
-  assert.equal(report.deletionPerformed, false);
-  assert.equal(calls.length, 2);
-  assert.equal(await readFile(join(backup, 'keep'), 'utf8'), 'unchanged');
-  assert.ok(!JSON.stringify(report).includes('private-path-not-logged'));
-  const unavailable = await inspectLegacyBackup(root, () => {
-    throw Error('SECRET-CREDENTIAL-FIXTURE');
-  });
-  assert.equal(unavailable.allocatedBytes, null);
-  assert.equal(unavailable.inodeCount, null);
-});
-
-test('explicit SSH account is a single argv entry and never appears in diagnostics', () => {
-  const calls = [];
-  assert.deepEqual(
-    readAccountQuotas((command, args) => {
-      calls.push(args);
-      return JSON.stringify(quotas);
-    }),
-    accountHeadroom(quotas),
-  );
-  assert.ok(calls[0].includes('--user=fixture_user'));
-  assert.ok(calls[0].includes('display=diskusage|fileusage'));
-  assert.throws(
-    () => readAccountQuotas(() => 'not-json'),
-    (error) =>
-      error.message.includes('--user=<current-ssh-user>') &&
-      !error.message.includes('fixture_user'),
-  );
-  assert.throws(
-    () => readAccountQuotas(() => '{}', undefined, undefined, 'root'),
-    /non-root/,
-  );
-});
-
-test('disk and inode metrics can be probed independently without accepting partial preflight results', () => {
-  for (const [metric, property] of [
-    ['diskusage', 'accountBytes'],
-    ['fileusage', 'accountInodes'],
-  ]) {
-    const result = readAccountQuotas(
-      (_command, args) => {
-        assert.ok(args.includes(`display=${metric}`));
-        return JSON.stringify({
-          result: {
-            status: 1,
-            data: quotas.result.data.filter((row) => row.id === metric),
-          },
-        });
-      },
-      undefined,
-      [metric],
-    );
-    assert.deepEqual(Object.keys(result), [property]);
-  }
-  assert.throws(
-    () =>
-      readAccountQuotas(() =>
-        JSON.stringify({
-          result: { status: 1, data: [quotas.result.data[0]] },
-        }),
+for (const unsafe of [
+  'uploads/photo.jpg',
+  '.env',
+  'node_modules/index.js',
+  'dist/.env.production',
+  'src/backup.db',
+]) {
+  test(`rejects incoming persistent/secret/database path ${unsafe} before npm or activation`, async (t) => {
+    const { root, app, incoming } = await fixture(t);
+    let installed = false;
+    const execute = (command, args, options) => {
+      if (command === 'npm') installed = true;
+      if (
+        command === 'tar' &&
+        args[0] === '-tzf' &&
+        args[1] === join(incoming, 'backend.tar.gz')
+      )
+        return unsafe + '\n';
+      return run(command, args, options);
+    };
+    await assert.rejects(
+      deploy(
+        root,
+        incoming,
+        revision,
+        sizes,
+        {},
+        execute,
+        async () => {},
+        async () => ({ status: 'fixture-ok' }),
       ),
-    (error) => error.diagnostics.category === 'missing_metrics',
-  );
-});
-
-test('exit 2 yields evidence-based fixed hints and never gets inferred as a particular cause', () => {
-  const cases = [
-    ['Unknown option: output SECRET-FIXTURE', 'unsupported_cli_arguments'],
-    ['You must specify a user SECRET-FIXTURE', 'missing_account_context'],
-    [
-      'Failed to execute /usr/local/cpanel/cpanel: No such file or directory SECRET-FIXTURE',
-      'cpanel_backend_unavailable',
-    ],
-    ['Permission denied SECRET-FIXTURE', 'permission_denied'],
-    ['Disk quota exceeded SECRET-FIXTURE', 'quota_exceeded'],
-    ['unsupported fileusage SECRET-FIXTURE', 'unsupported_metric'],
-  ];
-  for (const [stderr, hint] of cases) {
-    const diagnostics = commandOutputDiagnostics('', stderr);
-    assert.ok(diagnostics.outputHints.includes(hint));
-    assert.ok(!JSON.stringify(diagnostics).includes('SECRET-FIXTURE'));
-    assert.throws(
-      () =>
-        readAccountQuotas(() => {
-          const error = Error('SECRET-FIXTURE');
-          error.diagnostics = { ...diagnostics, exitStatus: 2 };
-          throw error;
-        }),
-      (error) =>
-        error.diagnostics.exitStatus === 2 &&
-        error.diagnostics.outputHints.includes(hint) &&
-        !error.message.includes('SECRET-FIXTURE'),
+      /unsafe or persistent-data/,
     );
-  }
-  assert.deepEqual(
-    commandOutputDiagnostics('', 'opaque failure').outputHints,
-    [],
-  );
-});
-
-test('help and binary probes expose capability booleans only', async () => {
-  assert.deepEqual(
-    inspectUapiOptions((_command, args) => {
-      assert.deepEqual(args, ['--help']);
-      return '--output=json --user=PRIVATE-ACCOUNT';
-    }),
-    {
-      status: 'help_returned',
-      outputOptionMentioned: true,
-      userOptionMentioned: true,
-    },
-  );
-  assert.equal(
-    inspectUapiOptions(() => {
-      throw Error('SECRET-FIXTURE');
-    }).status,
-    'help_unavailable',
-  );
-  assert.deepEqual(
-    await inspectUapiBinary(join(tmpdir(), 'waterfall-uapi-does-not-exist')),
-    { visible: false, executable: false },
-  );
-});
+    assert.equal(installed, false);
+    assert.equal(
+      await readFile(join(app, '.env'), 'utf8'),
+      'persistent-private-marker',
+    );
+    assert.equal(
+      await readFile(join(app, 'uploads/photo.jpg'), 'utf8'),
+      'persistent-private-marker',
+    );
+    assert.equal(
+      await readFile(join(app, 'node_modules/old/index.js'), 'utf8'),
+      'persistent-private-marker',
+    );
+    assert.ok(
+      (await readFile(join(app, 'dist/src/main.js'), 'utf8')).includes('old'),
+    );
+  });
+}

@@ -30,7 +30,7 @@ describe('Admin storage statistics HTTP API', () => {
   const member = jwt.sign({ sub: 2, role: 'USER', email: 'user@example.test' });
   const expired = jwt.sign({ sub: 1, role: 'ADMIN', exp: 1 });
   const hosting = { getStats: jest.fn<HostingStorageService['getStats']>() };
-  const hostingResult = { status: 'ok' as const, source: 'cpanel_uapi' as const, measuredAt: '2026-10-15T11:30:00.000Z', quotaBytes: 8388608, usedBytes: 2097152, availableBytes: 6291456, usagePercent: 25, isUnlimited: false };
+  const hostingResult = { status: 'unavailable' as const, source: 'cpanel_uapi' as const, measuredAt: null, quotaBytes: null, usedBytes: null, availableBytes: null, usagePercent: null, isUnlimited: false, errorCode: 'integration_disabled' as const };
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'storage-api-'));
@@ -97,7 +97,7 @@ describe('Admin storage statistics HTTP API', () => {
     expect(hosting.getStats).not.toHaveBeenCalled();
   });
 
-  it('returns normalized hosting measurements only to administrators', async () => {
+  it('returns disabled hosting compatibility only to administrators', async () => {
     const response = await request(server).get('/admin/storage/hosting?url=http://127.0.0.1&function=Other').set('Authorization', `Bearer ${admin}`).expect(200);
     expect(response.body).toEqual(hostingResult);
     expect(response.headers['cache-control']).toBe('no-store');
@@ -105,7 +105,7 @@ describe('Admin storage statistics HTTP API', () => {
   });
 
   it('returns explicit safe unavailability without changing the existing local stats endpoint', async () => {
-    const unavailable = { status: 'unavailable' as const, source: 'cpanel_uapi' as const, measuredAt: null, quotaBytes: null, usedBytes: null, availableBytes: null, usagePercent: null, isUnlimited: false, errorCode: 'permission_denied' as const };
+    const unavailable = { status: 'unavailable' as const, source: 'cpanel_uapi' as const, measuredAt: null, quotaBytes: null, usedBytes: null, availableBytes: null, usagePercent: null, isUnlimited: false, errorCode: 'integration_disabled' as const };
     hosting.getStats.mockResolvedValueOnce(unavailable);
     await request(server).get('/admin/storage/hosting').set('Authorization', `Bearer ${admin}`).expect(200, unavailable);
     const response = await request(server).get('/admin/storage/stats').set('Authorization', `Bearer ${admin}`).expect(200);
@@ -129,6 +129,7 @@ describe('Admin storage statistics HTTP API', () => {
     try {
       expect((await module.get(StorageService).getStats()).total).toEqual({ files: 4, bytes: 2000 });
       expect(module.get(StorageController)).toBeDefined();
+      expect(await module.get(StorageController).getHostingStats()).toEqual(hostingResult);
     } finally { await module.close(); }
   });
 });

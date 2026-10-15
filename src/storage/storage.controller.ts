@@ -21,7 +21,7 @@ export class StorageController {
 
   @Get('hosting')
   @Header('Cache-Control', 'no-store')
-  @ApiOperation({ summary: 'Read cPanel account disk quota and usage', description: 'Returns verified account-level StatsBar disk measurements, cached for five minutes. Failures return a safe unavailable/not_configured state with null values. Independent of local media statistics.' })
+  @ApiOperation({ deprecated: true, summary: 'Legacy hosting statistics compatibility', description: 'Hosting quota integration is disabled. Returns unavailable with null measurements. Use /admin/storage/stats for measured platform media usage.' })
   @ApiOkResponse({ type: HostingStorageStatsDto })
   getHostingStats(): Promise<HostingStorageStatsDto> {
     return this.hosting.getStats();

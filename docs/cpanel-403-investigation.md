@@ -1,3 +1,7 @@
+> Historical investigation only. The cPanel API integration and diagnostic CLI
+> are retired. Do not configure tokens or run the old commands below. See
+> [current deployment and media monitoring](backend-deployment.md).
+
 # cPanel 403 investigation
 
 ## Verified request contract
