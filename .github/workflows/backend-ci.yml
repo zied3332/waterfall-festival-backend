@@ -39,6 +39,12 @@ jobs:
       - name: Run static analysis
         run: npm run lint:check
 
+      - name: Validate deployment scripts
+        run: |
+          bash -n scripts/deploy/cpanel-deploy.sh
+          node --check scripts/deploy/backend-deploy.mjs
+          node --test tests/backend-deploy.test.mjs
+
       - name: Run unit tests
         run: npm test -- --runInBand
 

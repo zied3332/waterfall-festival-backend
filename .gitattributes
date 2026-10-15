@@ -1,0 +1,2 @@
+# Deployment shell entry points must also work after a Windows checkout.
+scripts/deploy/*.sh text eol=lf
