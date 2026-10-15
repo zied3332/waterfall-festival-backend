@@ -303,3 +303,74 @@ confirmed. Otherwise use the fixed output hints and separate metric results
 to request a Namecheap investigation. Keep deployment blocked until both
 account quotas and sufficient headroom are verifiable. Do not remove the
 known failed backup without a separate authorized cleanup decision.
+
+## Manual GitHub Actions quota diagnostic
+
+Workflow: **Diagnose cPanel Quotas**, file
+`.github/workflows/cpanel-quota-diagnose.yml`.
+
+At preparation time, remote `origin/main` was checked at `29c15bc` and contained
+only `backend-ci.yml` and `backend-deploy.yml`; no separate diagnostic workflow
+existed. The new workflow must be reviewed, committed and pushed after approval
+before it will appear in GitHub Actions. Preparing it does not trigger it.
+
+The only event is `workflow_dispatch`, and its job permits `main` only. It
+uses the existing `CPANEL_SSH_KEY`, `CPANEL_SSH_PASSPHRASE`, `CPANEL_HOST`,
+`CPANEL_USERNAME` and `CPANEL_PORT` secrets. It receives no database URL or
+cPanel API token and has only repository contents read permission.
+
+The runner sets up the same SSH agent/askpass authentication used by deployment.
+The private key, askpass, known-hosts and suppressed SSH-error files exist only
+in a private temporary directory on the disposable runner and are cleaned up
+there. Remote activation output and raw SSH stderr are suppressed. The only
+remote command activates the existing Node 22 environment and executes the
+streamed helper with the fixed `--diagnose-quota` mode. The helper is not
+uploaded or saved to production. A runner-side allowlist filter displays only
+recognized diagnostic fields and fixed messages; unexpected lines, identities,
+commands, raw API bodies and credentials are omitted. No raw logs are uploaded
+as artifacts. Help, combined/separate quota probes and inspection of the known
+legacy backup remain read-only. Diagnostic failures remain failed jobs.
+
+It performs no production installs, migrations, restarts, backups, cleanup or
+application writes. No mode, SSH command or path can be supplied as a workflow
+input. It shares the deployment concurrency group so it does not run alongside
+a new deployment job. The existing Deploy Backend workflow listens only for
+Backend CI completion or its own manual trigger: completing this diagnostic
+workflow does not start deployment. A later approved push to main still causes
+the repository's normal existing push CI/deployment automation; do not confuse
+that with launching this diagnostic workflow.
+
+After an approved commit/push, launch it as follows:
+
+1. Open the repository **Actions** tab.
+2. Select **Diagnose cPanel Quotas** (not **Deploy Backend**).
+3. Click **Run workflow**, select branch **main**, then **Run workflow**.
+4. Open the run and the **Diagnose cPanel quotas over existing SSH** step.
+
+Share the run URL, commit SHA, final job status, and the filtered JSON reports:
+
+- `binary` visibility/executable booleans and CLI `options` results.
+- Legacy comparison and corrected combined/disk-only/file-only results.
+- `requestedMetrics`, `category`, `spawnCode`, `exitStatus`, `stdoutKind`,
+  `stderrBytes`, `uapiStatus`, `outputHints`, metric-presence booleans and any
+  verified numeric headroom.
+- The known backup's status, `allocatedBytes` and `inodeCount`.
+- Any fixed message about suppressed output or SSH/activation failure.
+
+Do not share private keys, passphrases, tokens, environment dumps, usernames,
+raw SSH stderr, unfiltered API responses or the contents of `.env`. A workflow
+failure is useful evidence and does not authorize bypassing the preflight.
+
+Local validation (no remote connection):
+
+```sh
+bash -n scripts/deploy/cpanel-quota-diagnose.sh
+node --check scripts/deploy/cpanel-quota-output.mjs
+node --test tests/backend-deploy.test.mjs tests/cpanel-quota-workflow.test.mjs
+```
+
+The workflow tests require no npm packages: they check trigger isolation,
+allowed secrets and the fixed command, test output redaction, and run the SSH
+entry point against local mock executables for exit statuses 0, 1 and 255.
+They assert exact streamed-helper contents and cleanup of runner fixtures.
+Backend CI also runs these checks; they never call production or real SSH.
