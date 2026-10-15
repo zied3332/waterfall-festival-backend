@@ -126,3 +126,100 @@ creates a backup or deploys. Do not execute `cpanel-deploy.sh` for a dry run:
 that is the real deployment entry point. Use an isolated staging cPanel app
 with synthetic uploads/config and a disposable PostgreSQL database for a full
 SSH, Passenger, migration and recovery rehearsal before production rollout.
+
+## Quota preflight failure investigation (2026-10-15)
+
+The supplied Actions log confirms successful SSH authentication and execution
+of the remote Node preflight. It does **not** establish whether the UAPI binary
+is available, executable, permitted, or returns usable account metrics. The
+previous catch block collapsed all those cases into one message. The exact
+read-only command being executed (argv, not a shell pipeline) is:
+
+```sh
+/usr/local/cpanel/bin/uapi --output=json StatsBar get_stats 'display=diskusage|fileusage' warnings=0 warnout=1
+```
+
+The path follows [cPanel's CloudLinux command-line guidance](https://api.docs.cpanel.net/cpanel/introduction).
+The pipe is one argument and is not interpreted as a shell pipe. No account
+API token is passed to the local CLI. Do not add root privileges or change the
+hosting shell/jail to make this work. Availability inside this particular
+Namecheap SSH environment has not been verified from this workspace.
+
+The new error includes fixed, sanitized diagnostics:
+
+| Category                             | Meaning / action                                                                                               |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `command_or_interpreter_unavailable` | Spawn returned ENOENT: executable or its interpreter is not visible. Ask support about the account's SSH jail. |
+| `execution_denied`                   | EACCES/EPERM, or a permission-denial hint from a failed command. Ask support to confirm permitted access.      |
+| `command_timeout`                    | Command exceeded 15 seconds. Ask support to check the local quota service.                                     |
+| `command_failed`                     | Nonzero exit or another spawn failure; report the numeric exit status and permission hint to support.          |
+| `invalid_json`                       | CLI returned a non-JSON payload. Only output byte length is reported.                                          |
+| `uapi_rejected`                      | JSON status indicates failure; only a fixed permission/unsupported-function classification is exposed.         |
+| `invalid_envelope`                   | JSON does not contain a recognized success/failure envelope.                                                   |
+| `missing_metrics`                    | Disk or file quota row is absent; metric-presence booleans are shown.                                          |
+| `invalid_metric_values`              | Counts, units or limits cannot be verified. No values or API bodies are echoed.                                |
+
+No stderr, arbitrary exception text, raw API errors, cookies, environment values
+or credentials are included in these diagnostics. Account limits remain
+mandatory; successful `df`, `du`, or filesystem `statfs` cannot replace them.
+
+### Independent sources and manual intervention
+
+Namecheap documents [cPanel File Usage / Inodes Usage](https://www.namecheap.com/support/knowledgebase/article.aspx/9331/29/how-to-check-the-number-of-inodes-in-your-hosting-account/)
+and [cPanel Disk Usage](https://www.namecheap.com/support/knowledgebase/article/9797/29/cpanel-control-panel-overview/).
+Use those authenticated account views to establish current usage and the
+actual account limits, then ask Namecheap support to confirm both if unclear.
+Do not substitute advertised plan limits for verified account-specific limits.
+
+An independent **access path** is authenticated HTTPS UAPI on the configured
+cPanel host, with TLS verification enabled and no redirects:
+`GET /execute/StatsBar/get_stats?display=diskusage%7Cfileusage&warnings=0&warnout=1`.
+This bypasses CLI visibility restrictions; it is not an independent underlying
+quota measurement. The existing `npm run diagnose:cpanel` can test the current
+HTTPS client securely, but presently requests disk usage **only** and cannot
+satisfy this deployment's inode requirement. Earlier HTTP 403 evidence means
+that transport is not a verified fallback for this account. A response must
+be authenticated for the same SSH account and include valid disk **and** inode
+usage/limits before any integration could be enabled.
+
+[cPanel Quota::get_quota_info](https://api.docs.cpanel.net/openapi/cpanel/operation/get_quota_info/)
+is another documented read-only endpoint to investigate with support. Its
+availability, returned fields/units, account identity and freshness must be
+verified on this host before writing an adapter. No automatic fallback, saved
+JSON snapshot, manual quota override, new token, or production configuration
+change is introduced here. Standard per-user `quota` output can also be
+inspected if the host exposes it, but cannot be assumed available in a shared
+hosting jail or assumed to cover every account-specific restriction.
+
+### Read-only diagnostic and failed legacy backup
+
+From a trusted local Bash terminal with existing authorized SSH access, stream
+the updated helper without uploading it or triggering deployment (replace only
+the SSH placeholders):
+
+```sh
+ssh -p <port> <user>@<host> 'source "$HOME/nodevenv/waterfall-backend/22/bin/activate" && node --input-type=module - --diagnose-quota' < scripts/deploy/backend-deploy.mjs
+```
+
+This reports quota diagnostics, then inspects only
+`~/waterfall-backups/backend-20261015-090000`. It reports absence, unsafe path,
+unreadable path, or existence with allocated bytes and inode count
+when `du` supports those measurements. Symlinked paths are not traversed.
+`null` means measurement unavailable, **not zero**. Presence does not prove
+backup completeness. These totals do not prove account headroom.
+
+After a failed preflight, the SSH script also requests this same read-only
+backup inspection using `--inspect-backup` before exiting with failure. It
+never reaches upload, backup creation, npm installation, migration or code
+activation. Both diagnostic modes make no deletions or configuration changes.
+The earlier partial backup may still consume substantial bytes/inodes, but
+its existence and size have **not** been verified on production here. A backup
+inspection failure is reported separately and does not unblock deployment.
+
+Safest next action: run the streamed diagnostic and inspect the authenticated
+cPanel usage/limit views. Give Namecheap the fixed diagnostic category, numeric
+exit status, server/account identity and backup totals. Ask them to confirm a
+supported read-only quota source and current account byte/file limits. Review
+any incomplete backup with its owner; cleanup requires a separate explicit
+authorization. Keep deployment blocked until both quota measurements and
+sufficient headroom can be verified.

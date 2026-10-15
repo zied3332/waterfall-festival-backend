@@ -38,7 +38,11 @@ activate='source "$HOME/nodevenv/waterfall-backend/22/bin/activate"'
 settings="BACKEND_BACKUP_KEEP=$BACKEND_BACKUP_KEEP BACKEND_DEPLOY_RESERVE_MB=$BACKEND_DEPLOY_RESERVE_MB BACKEND_DEPLOY_RESERVE_INODES=$BACKEND_DEPLOY_RESERVE_INODES"
 sizes="$archiveBytes $sourceBytes $sourceFiles"
 # Read-only remote quota checks run BEFORE uploading anything or creating a backup.
-"${remote[@]}" "set -e; $activate; $settings node --input-type=module - --preflight $sizes" < scripts/deploy/backend-deploy.mjs
+if ! "${remote[@]}" "set -e; $activate; $settings node --input-type=module - --preflight $sizes" < scripts/deploy/backend-deploy.mjs; then
+  echo 'Storage preflight failed. Read-only inspection of the earlier failed backup follows; nothing will be deleted.' >&2
+  "${remote[@]}" "set -e; $activate; node --input-type=module - --inspect-backup" < scripts/deploy/backend-deploy.mjs || echo 'Read-only backup inspection unavailable; ask hosting support to inspect it.' >&2
+  exit 1
+fi
 "${remote[@]}" "umask 077; mkdir -- \"\$HOME/$incoming\""
 incoming_created=true
 "${upload[@]}" "$RUNNER_TEMP/backend.tar.gz" "$SSH_USER@$SSH_HOST:~/$incoming/backend.tar.gz"

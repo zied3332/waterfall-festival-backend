@@ -17,6 +17,8 @@ import {
   archiveCode,
   run,
   accountHeadroom,
+  readAccountQuotas,
+  inspectLegacyBackup,
   checkHeadroom,
   preflight,
   retentionReport,
@@ -370,4 +372,116 @@ test('child process failures report quota category without exposing stderr secre
       /account quota exceeded/.test(error.message) &&
       !error.message.includes('secret-fixture-token'),
   );
+});
+
+test('quota probe distinguishes sanitized command failures without exposing stderr or arbitrary error fields', () => {
+  for (const [spawnCode, category] of [
+    ['ENOENT', 'command_or_interpreter_unavailable'],
+    ['EACCES', 'execution_denied'],
+    ['EPERM', 'execution_denied'],
+    ['ETIMEDOUT', 'command_timeout'],
+    [null, 'command_failed'],
+  ]) {
+    assert.throws(
+      () =>
+        readAccountQuotas(() => {
+          const error = Error('SECRET-CREDENTIAL-FIXTURE');
+          error.diagnostics = {
+            spawnCode,
+            exitStatus: 1,
+            category: ['EACCES', 'EPERM'].includes(spawnCode)
+              ? 'permission_denied'
+              : 'command failed',
+            arbitrary: 'SECRET-CREDENTIAL-FIXTURE',
+          };
+          throw error;
+        }),
+      (error) =>
+        error.diagnostics.category === category &&
+        !error.message.includes('SECRET-CREDENTIAL-FIXTURE'),
+    );
+  }
+  assert.throws(
+    () => run('waterfall-test-command-does-not-exist', []),
+    (error) => error.diagnostics.spawnCode === 'ENOENT',
+  );
+});
+
+test('quota probe differentiates malformed data, API rejection and unsupported metrics', () => {
+  const cases = [
+    ['not-json SECRET-CREDENTIAL-FIXTURE', 'invalid_json'],
+    [
+      JSON.stringify({
+        result: {
+          status: 0,
+          errors: ['Permission denied SECRET-CREDENTIAL-FIXTURE'],
+        },
+      }),
+      'uapi_rejected',
+    ],
+    ['{}', 'invalid_envelope'],
+    [
+      JSON.stringify({
+        result: { status: 1, data: [null, quotas.result.data[0]] },
+      }),
+      'missing_metrics',
+    ],
+    [
+      JSON.stringify({
+        result: {
+          status: 1,
+          data: [
+            quotas.result.data[0],
+            {
+              id: 'fileusage',
+              count: 'bad SECRET-CREDENTIAL-FIXTURE',
+              max: 10,
+            },
+          ],
+        },
+      }),
+      'invalid_metric_values',
+    ],
+  ];
+  for (const [payload, category] of cases)
+    assert.throws(
+      () => readAccountQuotas(() => payload),
+      (error) =>
+        error.diagnostics.category === category &&
+        !error.message.includes('SECRET-CREDENTIAL-FIXTURE'),
+    );
+  assert.deepEqual(
+    readAccountQuotas(() => JSON.stringify(quotas)),
+    accountHeadroom(quotas),
+  );
+  assert.deepEqual(
+    accountHeadroom({ result: { ...quotas.result, status: '1' } }),
+    accountHeadroom(quotas),
+  );
+});
+
+test('legacy backup inspection measures only the fixed failed directory and never deletes it', async (t) => {
+  const { root } = await fixture(t);
+  assert.equal((await inspectLegacyBackup(root)).status, 'absent');
+  const backup = join(root, 'waterfall-backups/backend-20261015-090000');
+  await mkdir(backup, { recursive: true });
+  await writeFile(join(backup, 'keep'), 'unchanged');
+  const calls = [];
+  const report = await inspectLegacyBackup(root, (command, args) => {
+    calls.push([command, ...args]);
+    assert.equal(command, 'du');
+    assert.equal(args.at(-1), backup);
+    return `${args[0] === '-sk' ? 123 : 7}\tprivate-path-not-logged\n`;
+  });
+  assert.equal(report.allocatedBytes, 123 * 1024);
+  assert.equal(report.inodeCount, 7);
+  assert.equal(report.deletionPerformed, false);
+  assert.equal(calls.length, 2);
+  assert.equal(await readFile(join(backup, 'keep'), 'utf8'), 'unchanged');
+  assert.ok(!JSON.stringify(report).includes('private-path-not-logged'));
+  const unavailable = await inspectLegacyBackup(root, () => {
+    throw Error('SECRET-CREDENTIAL-FIXTURE');
+  });
+  assert.equal(unavailable.allocatedBytes, null);
+  assert.equal(unavailable.inodeCount, null);
 });

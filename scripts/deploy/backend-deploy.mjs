@@ -102,9 +102,28 @@ export function run(command, args, options = {}) {
         : /file too large/i.test(text)
           ? 'filesystem file-size limit'
           : 'command failed';
-    throw new Error(
+    const error = new Error(
       `${basename(command)}: ${reason} (exit ${result.status ?? 'unavailable'}).`,
     );
+    error.diagnostics = {
+      spawnCode: ['ENOENT', 'EACCES', 'EPERM', 'ETIMEDOUT', 'ENOBUFS'].includes(
+        result.error?.code,
+      )
+        ? result.error.code
+        : result.error
+          ? 'OTHER'
+          : null,
+      exitStatus: Number.isInteger(result.status) ? result.status : null,
+      signal: ['SIGTERM', 'SIGKILL', 'SIGABRT'].includes(result.signal)
+        ? result.signal
+        : null,
+      category: /permission denied|not permitted/i.test(text)
+        ? 'permission_denied'
+        : /not found|no such file/i.test(text)
+          ? 'command_or_interpreter_unavailable'
+          : reason,
+    };
+    throw error;
   }
   return result.stdout;
 }
@@ -134,6 +153,7 @@ function quantity(value, units = '') {
   const factors = {
     '': 1,
     B: 1,
+    BYTE: 1,
     BYTES: 1,
     KB: 1024,
     KIB: 1024,
@@ -156,20 +176,30 @@ function quantity(value, units = '') {
 
 export function accountHeadroom(payload) {
   const result = payload?.result ?? payload;
-  if (result?.status !== 1 || !Array.isArray(result.data))
+  if (![1, '1'].includes(result?.status) || !Array.isArray(result.data))
     throw new Error('Account disk/inode quota measurement unavailable.');
   function remaining(id) {
     const matches = result.data.filter(
-      (row) => row.id === id || row.name === id,
+      (row) =>
+        row && typeof row === 'object' && (row.id === id || row.name === id),
     );
     if (matches.length !== 1)
       throw new Error(`Account ${id} quota measurement unavailable.`);
     const row = matches[0];
     const rawMax = row._max ?? row.max;
-    const used = quantity(row._count ?? row.count, row.units ?? '');
+    const units = typeof row.units === 'string' ? row.units.trim() : '';
+    if (
+      id === 'fileusage' &&
+      !['', 'FILES', 'INODES'].includes(units.toUpperCase())
+    )
+      throw new Error('Invalid file quota units.');
+    if (id === 'diskusage' && !units)
+      throw new Error('Disk quota units unavailable.');
+    const metricUnits = id === 'fileusage' ? '' : units;
+    const used = quantity(row._count ?? row.count, metricUnits);
     if (typeof rawMax === 'string' && /^unlimited$/i.test(rawMax.trim()))
       return null;
-    const limit = quantity(rawMax, row.units ?? '');
+    const limit = quantity(rawMax, metricUnits);
     if (limit === 0 && [true, 1, '1'].includes(row.zeroisunlimited))
       return null;
     return Math.max(0, limit - used);
@@ -178,6 +208,154 @@ export function accountHeadroom(payload) {
     accountBytes: remaining('diskusage'),
     accountInodes: remaining('fileusage'),
   };
+}
+
+export const QUOTA_COMMAND =
+  "/usr/local/cpanel/bin/uapi --output=json StatsBar get_stats 'display=diskusage|fileusage' warnings=0 warnout=1";
+
+function quotaFailure(category, details = {}) {
+  const diagnostics = {
+    source: 'local_cpanel_uapi',
+    command: QUOTA_COMMAND,
+    category,
+    ...details,
+  };
+  const error = new Error(
+    `Cannot verify ACCOUNT disk and inode quotas: ${JSON.stringify(diagnostics)}. Deployment stopped; obtain verified hosting quota measurements. df alone is insufficient. Run --diagnose-quota for read-only backup inspection.`,
+  );
+  error.diagnostics = diagnostics;
+  return error;
+}
+
+export function readAccountQuotas(
+  execute = run,
+  executable = '/usr/local/cpanel/bin/uapi',
+) {
+  let text;
+  try {
+    text = execute(
+      executable,
+      [
+        '--output=json',
+        'StatsBar',
+        'get_stats',
+        'display=diskusage|fileusage',
+        'warnings=0',
+        'warnout=1',
+      ],
+      { timeout: 15000, maxBuffer: MiB },
+    );
+  } catch (error) {
+    // Never spread an arbitrary error or print stdout/stderr. Only fixed fields.
+    const diagnostic = error?.diagnostics;
+    const spawnCode = [
+      'ENOENT',
+      'EACCES',
+      'EPERM',
+      'ETIMEDOUT',
+      'ENOBUFS',
+      'OTHER',
+    ].includes(diagnostic?.spawnCode)
+      ? diagnostic.spawnCode
+      : null;
+    throw quotaFailure(
+      spawnCode === 'ENOENT'
+        ? 'command_or_interpreter_unavailable'
+        : spawnCode === 'ETIMEDOUT'
+          ? 'command_timeout'
+          : ['EACCES', 'EPERM'].includes(spawnCode) ||
+              diagnostic?.category === 'permission_denied'
+            ? 'execution_denied'
+            : 'command_failed',
+      {
+        spawnCode,
+        exitStatus: Number.isInteger(diagnostic?.exitStatus)
+          ? diagnostic.exitStatus
+          : null,
+        permissionHint: diagnostic?.category === 'permission_denied',
+      },
+    );
+  }
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw quotaFailure('invalid_json', {
+      outputBytes: Buffer.byteLength(String(text)),
+    });
+  }
+  const result = payload?.result ?? payload;
+  if (![1, '1'].includes(result?.status)) {
+    const errors = Array.isArray(result?.errors)
+      ? result.errors.filter((item) => typeof item === 'string').join(' ')
+      : '';
+    const hint = /permission|access denied|not permitted|not authorized/i.test(
+      errors,
+    )
+      ? 'permission_denied'
+      : /unknown|not found|not available|disabled|unsupported/i.test(errors)
+        ? 'function_or_feature_unavailable'
+        : 'unspecified';
+    throw quotaFailure(
+      [0, '0'].includes(result?.status) ? 'uapi_rejected' : 'invalid_envelope',
+      { hint },
+    );
+  }
+  const rows = Array.isArray(result.data) ? result.data : [];
+  const present = (id) =>
+    rows.some((row) => row && (row.id === id || row.name === id));
+  const metrics = {
+    diskMetricPresent: present('diskusage'),
+    inodeMetricPresent: present('fileusage'),
+  };
+  try {
+    return accountHeadroom(payload);
+  } catch {
+    throw quotaFailure(
+      !metrics.diskMetricPresent || !metrics.inodeMetricPresent
+        ? 'missing_metrics'
+        : 'invalid_metric_values',
+      metrics,
+    );
+  }
+}
+
+// Inspect only the exact failed legacy backup. No traversal of uploads, no deletion.
+export async function inspectLegacyBackup(home, execute = run) {
+  const path = join(home, 'waterfall-backups', 'backend-20261015-090000');
+  let info;
+  try {
+    info = await lstat(path);
+  } catch (error) {
+    return {
+      backup: 'backend-20261015-090000',
+      status: error.code === 'ENOENT' ? 'absent' : 'unreadable',
+    };
+  }
+  if (!info.isDirectory() || (await realpath(path)) !== resolve(path))
+    return {
+      backup: 'backend-20261015-090000',
+      status: 'unsafe_path_not_inspected',
+    };
+  const report = {
+    backup: 'backend-20261015-090000',
+    status: 'present_completeness_unknown',
+    deletionPerformed: false,
+  };
+  for (const [field, args, factor] of [
+    ['allocatedBytes', ['-sk', '--', path], 1024],
+    ['inodeCount', ['--inodes', '-s', '--', path], 1],
+  ]) {
+    try {
+      const output = execute('du', args, { timeout: 15000, maxBuffer: MiB });
+      const match = /^([0-9]+)\s/.exec(output);
+      const value = match ? Number(match[1]) * factor : NaN;
+      report[field] = Number.isSafeInteger(value) && value >= 0 ? value : null;
+    } catch {
+      report[field] = null;
+    }
+  }
+  return report;
 }
 
 export function checkHeadroom(
@@ -249,30 +427,7 @@ export async function preflight(
     incoming.archiveBytes +
     incoming.sourceBytes;
   const requiredInodes = reserveInodes + incoming.sourceFiles + 20;
-  let quotas;
-  try {
-    const executable = dependencies.uapi ?? '/usr/local/cpanel/bin/uapi';
-    quotas = accountHeadroom(
-      JSON.parse(
-        (dependencies.run ?? run)(
-          executable,
-          [
-            '--output=json',
-            'StatsBar',
-            'get_stats',
-            'display=diskusage|fileusage',
-            'warnings=0',
-            'warnout=1',
-          ],
-          { timeout: 15000 },
-        ),
-      ),
-    );
-  } catch {
-    throw new Error(
-      'Cannot verify ACCOUNT disk and inode quotas using local read-only UAPI. Stop and obtain hosting quota measurements; df alone is insufficient.',
-    );
-  }
+  const quotas = readAccountQuotas(dependencies.run ?? run, dependencies.uapi);
   const fs = await (dependencies.statfs ?? statfs)(home);
   if (!fs.files || !Number.isFinite(fs.bavail * fs.bsize))
     throw new Error('Filesystem headroom measurement unavailable.');
@@ -596,6 +751,32 @@ async function main() {
         sourceFiles: manifest.files.length,
       }),
     );
+    return;
+  }
+  if (mode === '--inspect-backup') {
+    console.log(
+      JSON.stringify(await inspectLegacyBackup(resolve(process.env.HOME))),
+    );
+    return;
+  }
+  if (mode === '--diagnose-quota') {
+    let failed = false;
+    try {
+      console.log(
+        JSON.stringify({
+          status: 'verified',
+          source: 'local_cpanel_uapi',
+          ...readAccountQuotas(),
+        }),
+      );
+    } catch (error) {
+      console.error(error.message);
+      failed = true;
+    }
+    console.log(
+      JSON.stringify(await inspectLegacyBackup(resolve(process.env.HOME))),
+    );
+    if (failed) process.exitCode = 1;
     return;
   }
   const sizes = {
