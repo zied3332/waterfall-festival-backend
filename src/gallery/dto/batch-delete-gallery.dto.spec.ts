@@ -5,7 +5,7 @@ import { BatchDeleteGalleryDto } from './batch-delete-gallery.dto.js';
 import { UpdateGalleryImageDto } from './update-gallery-image.dto.js';
 
 describe('Gallery deletion input', () => {
-  it.each([[], [1, 1], [0], [-1], [1.5], ['1'], [null], [2147483648], Array.from({ length: 101 }, (_, i) => i + 1), undefined, '1'])('rejects invalid IDs %j', async (ids) => {
+  it.each([[], [1, 1], [0], [-1], [1.5], ['1'], [null], [2147483648], Array.from({ length: 101 }, (_, i) => i + 1), undefined, '1'].map(ids => ({ ids })))('rejects invalid IDs $ids', async ({ ids }) => {
     expect((await validate(plainToInstance(BatchDeleteGalleryDto, { ids }))).length).toBeGreaterThan(0);
   });
   it('accepts integer IDs including the PostgreSQL upper bound', async () => {

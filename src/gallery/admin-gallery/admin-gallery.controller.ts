@@ -4,14 +4,17 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   UploadedFile,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
+  ValidationPipe,
 } from "@nestjs/common";
 
 import {
@@ -24,6 +27,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
@@ -71,6 +75,9 @@ import {
 import {
   GalleryService,
 } from "../gallery.service.js";
+import { GalleryDeletionService } from '../gallery-deletion.service.js';
+import { BatchDeleteGalleryDto } from '../dto/batch-delete-gallery.dto.js';
+import { GalleryDeletionResponseDto, GallerySingleDeletionResponseDto } from '../dto/gallery-deletion-response.dto.js';
 
 const MAX_IMAGE_SIZE =
   5 * 1024 * 1024;
@@ -347,6 +354,7 @@ export class AdminGalleryController {
 
     private readonly localUploadService:
       LocalUploadService,
+    private readonly deletionService: GalleryDeletionService,
   ) {}
 
   @Get()
@@ -368,6 +376,33 @@ export class AdminGalleryController {
   })
   findAll() {
     return this.galleryService.findAll();
+  }
+
+  @Delete('batch')
+  @ApiOperation({ summary: 'Delete 1–100 gallery images', description: 'Atomically deletes image records and creates durable cleanup tasks. Existing videos, ambiguous ownership, unsafe paths, or shared references reject the entire batch. Missing IDs are reported separately.' })
+  @ApiBody({ type: BatchDeleteGalleryDto })
+  @ApiOkResponse({ type: GalleryDeletionResponseDto })
+  @ApiBadRequestResponse({ description: 'Invalid IDs, selected video, unsafe paths, or unverified storage ownership.' })
+  @ApiConflictResponse({ description: 'A storage asset is shared or reserved by an earlier cleanup operation.' })
+  removeBatch(@Body(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true })) body: BatchDeleteGalleryDto) {
+    return this.galleryService.removeBatch(body.ids);
+  }
+
+  @Get('operations/:operationId')
+  @ApiOperation({ summary: 'Get gallery deletion and cleanup status' })
+  @ApiOkResponse({ type: GalleryDeletionResponseDto })
+  @ApiNotFoundResponse({ description: 'Unknown operation.' })
+  deletionStatus(@Param('operationId', new ParseUUIDPipe()) operationId: string) {
+    return this.deletionService.status(operationId);
+  }
+
+  @Post('operations/:operationId/retry')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Retry pending or failed gallery cleanup', description: 'Revalidates storage paths and shared references; completed tasks are skipped. Safe to repeat after restart.' })
+  @ApiOkResponse({ type: GalleryDeletionResponseDto })
+  @ApiNotFoundResponse({ description: 'Unknown operation.' })
+  retryDeletion(@Param('operationId', new ParseUUIDPipe()) operationId: string) {
+    return this.deletionService.retry(operationId);
   }
 
   @Get(
@@ -475,7 +510,7 @@ export class AdminGalleryController {
       "Delete gallery media",
 
     description:
-      "Deletes a gallery media record and its associated locally stored image or video when a local public ID is available.",
+      "Deletes a gallery media record transactionally, then attempts verified local storage cleanup. Existing record fields are retained in the response, with a deletion result containing the operation ID and cleanup status. Legacy Cloudinary files are preserved.",
   })
   @ApiParam({
     name: "id",
@@ -488,10 +523,10 @@ export class AdminGalleryController {
   })
   @ApiOkResponse({
     description:
-      "Gallery media deleted successfully.",
+      "Gallery record deleted. Inspect deletion.cleanup for physical cleanup results.",
 
     type:
-      GalleryImageResponseDto,
+      GallerySingleDeletionResponseDto,
   })
   @ApiBadRequestResponse({
     description:
