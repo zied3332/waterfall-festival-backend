@@ -17,13 +17,22 @@ import {
   archiveCode,
   run,
   accountHeadroom,
-  readAccountQuotas,
+  readAccountQuotas as actualReadAccountQuotas,
+  commandOutputDiagnostics,
+  inspectUapiOptions,
+  inspectUapiBinary,
   inspectLegacyBackup,
   checkHeadroom,
   preflight,
   retentionReport,
   deploy,
 } from '../scripts/deploy/backend-deploy.mjs';
+const readAccountQuotas = (
+  execute,
+  executable,
+  metrics,
+  accountUser = 'fixture_user',
+) => actualReadAccountQuotas(execute, executable, metrics, accountUser);
 const revision = 'a'.repeat(40);
 const sizes = { archiveBytes: 100, sourceBytes: 100, sourceFiles: 10 };
 const quotas = {
@@ -145,6 +154,7 @@ test('preflight is read-only and fails closed when account measurements are unav
     BACKEND_DEPLOY_RESERVE_INODES: 1,
   };
   const dependencies = {
+    accountUser: 'fixture_user',
     run: () => JSON.stringify(quotas),
     statfs: async () => ({
       files: 100000,
@@ -484,4 +494,117 @@ test('legacy backup inspection measures only the fixed failed directory and neve
   });
   assert.equal(unavailable.allocatedBytes, null);
   assert.equal(unavailable.inodeCount, null);
+});
+
+test('explicit SSH account is a single argv entry and never appears in diagnostics', () => {
+  const calls = [];
+  assert.deepEqual(
+    readAccountQuotas((command, args) => {
+      calls.push(args);
+      return JSON.stringify(quotas);
+    }),
+    accountHeadroom(quotas),
+  );
+  assert.ok(calls[0].includes('--user=fixture_user'));
+  assert.ok(calls[0].includes('display=diskusage|fileusage'));
+  assert.throws(
+    () => readAccountQuotas(() => 'not-json'),
+    (error) =>
+      error.message.includes('--user=<current-ssh-user>') &&
+      !error.message.includes('fixture_user'),
+  );
+  assert.throws(
+    () => readAccountQuotas(() => '{}', undefined, undefined, 'root'),
+    /non-root/,
+  );
+});
+
+test('disk and inode metrics can be probed independently without accepting partial preflight results', () => {
+  for (const [metric, property] of [
+    ['diskusage', 'accountBytes'],
+    ['fileusage', 'accountInodes'],
+  ]) {
+    const result = readAccountQuotas(
+      (_command, args) => {
+        assert.ok(args.includes(`display=${metric}`));
+        return JSON.stringify({
+          result: {
+            status: 1,
+            data: quotas.result.data.filter((row) => row.id === metric),
+          },
+        });
+      },
+      undefined,
+      [metric],
+    );
+    assert.deepEqual(Object.keys(result), [property]);
+  }
+  assert.throws(
+    () =>
+      readAccountQuotas(() =>
+        JSON.stringify({
+          result: { status: 1, data: [quotas.result.data[0]] },
+        }),
+      ),
+    (error) => error.diagnostics.category === 'missing_metrics',
+  );
+});
+
+test('exit 2 yields evidence-based fixed hints and never gets inferred as a particular cause', () => {
+  const cases = [
+    ['Unknown option: output SECRET-FIXTURE', 'unsupported_cli_arguments'],
+    ['You must specify a user SECRET-FIXTURE', 'missing_account_context'],
+    [
+      'Failed to execute /usr/local/cpanel/cpanel: No such file or directory SECRET-FIXTURE',
+      'cpanel_backend_unavailable',
+    ],
+    ['Permission denied SECRET-FIXTURE', 'permission_denied'],
+    ['Disk quota exceeded SECRET-FIXTURE', 'quota_exceeded'],
+    ['unsupported fileusage SECRET-FIXTURE', 'unsupported_metric'],
+  ];
+  for (const [stderr, hint] of cases) {
+    const diagnostics = commandOutputDiagnostics('', stderr);
+    assert.ok(diagnostics.outputHints.includes(hint));
+    assert.ok(!JSON.stringify(diagnostics).includes('SECRET-FIXTURE'));
+    assert.throws(
+      () =>
+        readAccountQuotas(() => {
+          const error = Error('SECRET-FIXTURE');
+          error.diagnostics = { ...diagnostics, exitStatus: 2 };
+          throw error;
+        }),
+      (error) =>
+        error.diagnostics.exitStatus === 2 &&
+        error.diagnostics.outputHints.includes(hint) &&
+        !error.message.includes('SECRET-FIXTURE'),
+    );
+  }
+  assert.deepEqual(
+    commandOutputDiagnostics('', 'opaque failure').outputHints,
+    [],
+  );
+});
+
+test('help and binary probes expose capability booleans only', async () => {
+  assert.deepEqual(
+    inspectUapiOptions((_command, args) => {
+      assert.deepEqual(args, ['--help']);
+      return '--output=json --user=PRIVATE-ACCOUNT';
+    }),
+    {
+      status: 'help_returned',
+      outputOptionMentioned: true,
+      userOptionMentioned: true,
+    },
+  );
+  assert.equal(
+    inspectUapiOptions(() => {
+      throw Error('SECRET-FIXTURE');
+    }).status,
+    'help_unavailable',
+  );
+  assert.deepEqual(
+    await inspectUapiBinary(join(tmpdir(), 'waterfall-uapi-does-not-exist')),
+    { visible: false, executable: false },
+  );
 });

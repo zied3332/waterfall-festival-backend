@@ -1,5 +1,6 @@
 import {
   lstat,
+  access,
   realpath,
   readdir,
   statfs,
@@ -12,6 +13,8 @@ import {
   unlink,
   rmdir,
 } from 'node:fs/promises';
+import { userInfo } from 'node:os';
+import { constants as fsConstants } from 'node:fs';
 import { resolve, join, dirname, basename, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -86,6 +89,121 @@ export async function codeManifest(root) {
   return { files: files.sort(), bytes };
 }
 
+const OUTPUT_HINTS = [
+  'unsupported_cli_arguments',
+  'missing_account_context',
+  'cpanel_backend_unavailable',
+  'permission_denied',
+  'quota_exceeded',
+  'unsupported_metric',
+  'function_unavailable',
+];
+
+export function commandOutputDiagnostics(stdout = '', stderr = '') {
+  // Classify in memory. Never retain or echo arbitrary subprocess output.
+  const text = `${String(stdout).slice(0, MiB)}\n${String(stderr).slice(0, MiB)}`;
+  const patterns = [
+    [
+      'unsupported_cli_arguments',
+      /(?:unknown|unrecognized|invalid|unsupported)\s+(?:command[- ]line\s+)?option|option\b[^\n]{0,60}(?:requires|needs) an argument/i,
+    ],
+    [
+      'missing_account_context',
+      /(?:must|please|required to)\s+(?:specify|provide)\s+(?:a\s+)?(?:cPanel\s+)?user|(?:unable|cannot|could not) to determine (?:the )?(?:cPanel )?user/i,
+    ],
+    [
+      'cpanel_backend_unavailable',
+      /failed to execute \/usr\/local\/cpanel\/cpanel|can.t locate Cpanel\/|can.t exec[^\n]*\/usr\/local\/cpanel\//i,
+    ],
+    [
+      'permission_denied',
+      /permission denied|access denied|not permitted|not authorized/i,
+    ],
+    [
+      'quota_exceeded',
+      /disk quota exceeded|quota exceeded|no space left on device/i,
+    ],
+    [
+      'unsupported_metric',
+      /(?:unknown|unsupported|unavailable|invalid)[^\n]{0,50}fileusage|fileusage[^\n]{0,50}(?:unknown|unsupported|unavailable|invalid)/i,
+    ],
+    [
+      'function_unavailable',
+      /(?:unknown|undefined|unavailable|disabled)\s+(?:function|module)|function[^\n]{0,50}(?:not found|does not exist)/i,
+    ],
+  ];
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    /* Only expose shape. */
+  }
+  const result = parsed?.result ?? parsed;
+  return {
+    stdoutBytes: Buffer.byteLength(String(stdout)),
+    stderrBytes: Buffer.byteLength(String(stderr)),
+    stdoutKind: !String(stdout).trim()
+      ? 'empty'
+      : parsed !== undefined
+        ? 'json'
+        : 'text',
+    uapiStatus: [0, '0'].includes(result?.status)
+      ? 0
+      : [1, '1'].includes(result?.status)
+        ? 1
+        : null,
+    outputHints: patterns
+      .filter(([, pattern]) => pattern.test(text))
+      .map(([hint]) => hint),
+  };
+}
+
+export async function inspectUapiBinary(
+  executable = '/usr/local/cpanel/bin/uapi',
+) {
+  const result = { visible: false, executable: false };
+  try {
+    await access(executable, fsConstants.F_OK);
+    result.visible = true;
+  } catch {
+    return result;
+  }
+  try {
+    await access(executable, fsConstants.X_OK);
+    result.executable = true;
+  } catch {
+    /* No raw filesystem errors. */
+  }
+  return result;
+}
+
+export function inspectUapiOptions(
+  execute = run,
+  executable = '/usr/local/cpanel/bin/uapi',
+) {
+  try {
+    const output = execute(executable, ['--help'], {
+      timeout: 15000,
+      maxBuffer: MiB,
+    });
+    return {
+      status: 'help_returned',
+      outputOptionMentioned: /--output\b/.test(output),
+      userOptionMentioned: /--user\b/.test(output),
+    };
+  } catch (error) {
+    return {
+      status: 'help_unavailable',
+      exitStatus: Number.isInteger(error?.diagnostics?.exitStatus)
+        ? error.diagnostics.exitStatus
+        : null,
+      outputHints: (error?.diagnostics?.outputHints ?? []).filter((hint) =>
+        OUTPUT_HINTS.includes(hint),
+      ),
+    };
+  }
+}
+
 export function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
@@ -106,6 +224,7 @@ export function run(command, args, options = {}) {
       `${basename(command)}: ${reason} (exit ${result.status ?? 'unavailable'}).`,
     );
     error.diagnostics = {
+      ...commandOutputDiagnostics(result.stdout, result.stderr),
       spawnCode: ['ENOENT', 'EACCES', 'EPERM', 'ETIMEDOUT', 'ENOBUFS'].includes(
         result.error?.code,
       )
@@ -174,7 +293,7 @@ function quantity(value, units = '') {
   return valueInBytes;
 }
 
-export function accountHeadroom(payload) {
+export function accountHeadroom(payload, metrics = ['diskusage', 'fileusage']) {
   const result = payload?.result ?? payload;
   if (![1, '1'].includes(result?.status) || !Array.isArray(result.data))
     throw new Error('Account disk/inode quota measurement unavailable.');
@@ -204,14 +323,16 @@ export function accountHeadroom(payload) {
       return null;
     return Math.max(0, limit - used);
   }
-  return {
-    accountBytes: remaining('diskusage'),
-    accountInodes: remaining('fileusage'),
-  };
+  return Object.fromEntries(
+    metrics.map((id) => [
+      id === 'diskusage' ? 'accountBytes' : 'accountInodes',
+      remaining(id),
+    ]),
+  );
 }
 
 export const QUOTA_COMMAND =
-  "/usr/local/cpanel/bin/uapi --output=json StatsBar get_stats 'display=diskusage|fileusage' warnings=0 warnout=1";
+  "/usr/local/cpanel/bin/uapi --output=json --user=<current-ssh-user> StatsBar get_stats 'display=diskusage|fileusage' warnings=0 warnout=1";
 
 function quotaFailure(category, details = {}) {
   const diagnostics = {
@@ -227,19 +348,51 @@ function quotaFailure(category, details = {}) {
   return error;
 }
 
+function currentCpanelUser() {
+  try {
+    return userInfo().username;
+  } catch {
+    throw new Error(
+      'Cannot determine the current SSH account from the operating system. Deployment stopped.',
+    );
+  }
+}
+
 export function readAccountQuotas(
   execute = run,
   executable = '/usr/local/cpanel/bin/uapi',
+  metrics = ['diskusage', 'fileusage'],
+  accountUser = currentCpanelUser(),
 ) {
+  if (
+    accountUser !== null &&
+    (!/^[a-zA-Z0-9_]{1,64}$/.test(accountUser) || accountUser === 'root')
+  )
+    throw new Error(
+      'A valid non-root current SSH account is required for local UAPI.',
+    );
+  if (
+    !metrics.length ||
+    metrics.some((id) => !['diskusage', 'fileusage'].includes(id)) ||
+    new Set(metrics).size !== metrics.length
+  )
+    throw new Error('Invalid quota metric selection.');
+  const fail = (category, details = {}) =>
+    quotaFailure(category, {
+      ...details,
+      requestedMetrics: metrics,
+      command: `/usr/local/cpanel/bin/uapi --output=json${accountUser === null ? '' : ' --user=<current-ssh-user>'} StatsBar get_stats 'display=${metrics.join('|')}' warnings=0 warnout=1`,
+    });
   let text;
   try {
     text = execute(
       executable,
       [
         '--output=json',
+        ...(accountUser === null ? [] : [`--user=${accountUser}`]),
         'StatsBar',
         'get_stats',
-        'display=diskusage|fileusage',
+        `display=${metrics.join('|')}`,
         'warnings=0',
         'warnout=1',
       ],
@@ -258,7 +411,7 @@ export function readAccountQuotas(
     ].includes(diagnostic?.spawnCode)
       ? diagnostic.spawnCode
       : null;
-    throw quotaFailure(
+    throw fail(
       spawnCode === 'ENOENT'
         ? 'command_or_interpreter_unavailable'
         : spawnCode === 'ETIMEDOUT'
@@ -273,6 +426,20 @@ export function readAccountQuotas(
           ? diagnostic.exitStatus
           : null,
         permissionHint: diagnostic?.category === 'permission_denied',
+        outputHints: Array.isArray(diagnostic?.outputHints)
+          ? diagnostic.outputHints.filter((hint) => OUTPUT_HINTS.includes(hint))
+          : [],
+        stdoutKind: ['empty', 'json', 'text'].includes(diagnostic?.stdoutKind)
+          ? diagnostic.stdoutKind
+          : 'unknown',
+        uapiStatus: [0, 1].includes(diagnostic?.uapiStatus)
+          ? diagnostic.uapiStatus
+          : null,
+        stderrBytes:
+          Number.isSafeInteger(diagnostic?.stderrBytes) &&
+          diagnostic.stderrBytes >= 0
+            ? diagnostic.stderrBytes
+            : null,
       },
     );
   }
@@ -280,7 +447,7 @@ export function readAccountQuotas(
   try {
     payload = JSON.parse(text);
   } catch {
-    throw quotaFailure('invalid_json', {
+    throw fail('invalid_json', {
       outputBytes: Buffer.byteLength(String(text)),
     });
   }
@@ -296,7 +463,7 @@ export function readAccountQuotas(
       : /unknown|not found|not available|disabled|unsupported/i.test(errors)
         ? 'function_or_feature_unavailable'
         : 'unspecified';
-    throw quotaFailure(
+    throw fail(
       [0, '0'].includes(result?.status) ? 'uapi_rejected' : 'invalid_envelope',
       { hint },
     );
@@ -304,18 +471,17 @@ export function readAccountQuotas(
   const rows = Array.isArray(result.data) ? result.data : [];
   const present = (id) =>
     rows.some((row) => row && (row.id === id || row.name === id));
-  const metrics = {
+  const presence = {
     diskMetricPresent: present('diskusage'),
     inodeMetricPresent: present('fileusage'),
   };
+  const requestedMissing = metrics.some((id) => !present(id));
   try {
-    return accountHeadroom(payload);
+    return accountHeadroom(payload, metrics);
   } catch {
-    throw quotaFailure(
-      !metrics.diskMetricPresent || !metrics.inodeMetricPresent
-        ? 'missing_metrics'
-        : 'invalid_metric_values',
-      metrics,
+    throw fail(
+      requestedMissing ? 'missing_metrics' : 'invalid_metric_values',
+      presence,
     );
   }
 }
@@ -427,7 +593,12 @@ export async function preflight(
     incoming.archiveBytes +
     incoming.sourceBytes;
   const requiredInodes = reserveInodes + incoming.sourceFiles + 20;
-  const quotas = readAccountQuotas(dependencies.run ?? run, dependencies.uapi);
+  const quotas = readAccountQuotas(
+    dependencies.run ?? run,
+    dependencies.uapi,
+    undefined,
+    dependencies.accountUser,
+  );
   const fs = await (dependencies.statfs ?? statfs)(home);
   if (!fs.files || !Number.isFinite(fs.bavail * fs.bsize))
     throw new Error('Filesystem headroom measurement unavailable.');
@@ -760,18 +931,37 @@ async function main() {
     return;
   }
   if (mode === '--diagnose-quota') {
+    console.log(
+      JSON.stringify({
+        binary: await inspectUapiBinary(),
+        options: inspectUapiOptions(),
+      }),
+    );
     let failed = false;
     try {
-      console.log(
-        JSON.stringify({
-          status: 'verified',
-          source: 'local_cpanel_uapi',
-          ...readAccountQuotas(),
-        }),
-      );
+      readAccountQuotas(run, undefined, ['diskusage', 'fileusage'], null);
+      console.log(JSON.stringify({ legacyCommand: 'succeeded' }));
     } catch (error) {
       console.error(error.message);
-      failed = true;
+    }
+    for (const metrics of [
+      ['diskusage', 'fileusage'],
+      ['diskusage'],
+      ['fileusage'],
+    ]) {
+      try {
+        console.log(
+          JSON.stringify({
+            status: 'verified',
+            source: 'local_cpanel_uapi',
+            requestedMetrics: metrics,
+            ...readAccountQuotas(run, undefined, metrics),
+          }),
+        );
+      } catch (error) {
+        console.error(error.message);
+        failed = true;
+      }
     }
     console.log(
       JSON.stringify(await inspectLegacyBackup(resolve(process.env.HOME))),

@@ -223,3 +223,83 @@ supported read-only quota source and current account byte/file limits. Review
 any incomplete backup with its owner; cleanup requires a separate explicit
 authorization. Keep deployment blocked until both quota measurements and
 sufficient headroom can be verified.
+
+## Exit status 2 and explicit account context
+
+New production evidence supplied by the operator: the original command exited
+with status **2**, and `backend-20261015-090000` uses **52,649,984 allocated
+bytes** (about 50.2 MiB) and **5,869 inodes**. These measurements establish that
+the failed backup occupies space; they do not identify the exhausted account
+limit or prove sufficient remaining headroom. No backup was removed.
+
+Exit 2 shows a child process launched and failed. It is not a direct ENOENT or
+EACCES spawn error. It does not, by itself, prove incorrect arguments, missing
+`fileusage`, an unavailable cPanel backend, or exhausted quotas. cPanel's
+published documentation does not establish a unique meaning for this exit
+status. The old diagnostic did not preserve enough classified evidence to
+identify its exact cause retrospectively.
+
+A concrete code issue was found: the command omitted explicit account context.
+[cPanel's current CLI guidance](https://support.cpanel.net/hc/en-us/articles/360053404634-Using-cPanel-s-APIs-from-the-command-line)
+specifies `--user` with the account-level username; its
+[UAPI introduction](https://api.docs.cpanel.net/cpanel/introduction) documents
+`--output=json` and the full CloudLinux executable path. The corrected command
+is equivalent to this read-only command, executed as the existing SSH account:
+
+```sh
+/usr/local/cpanel/bin/uapi --output=json --user="$(id -un)" StatsBar get_stats 'display=diskusage|fileusage' warnings=0 warnout=1
+```
+
+The implementation obtains the current username from the OS, not environment
+variables or arbitrary configuration, validates it, and passes it as one argv
+entry. It refuses root and never logs the username; diagnostics show
+`--user=<current-ssh-user>`. No escalation or hosting configuration change is
+introduced. This corrects a documented invocation mismatch, but is not yet a
+confirmed explanation for this installation's exit 2.
+
+`display` remains a single argv entry; the pipe is never a shell operator.
+`diskusage` and `fileusage` availability still depends on the installed cPanel
+version and account/server configuration. The current installation has not
+been queried directly from this workspace. Do not declare `fileusage`
+unsupported simply because the combined command failed.
+
+The updated `--diagnose-quota` mode performs only read-only probes:
+
+1. Check executable visibility/access, returning booleans without paths or identity.
+2. Request `uapi --help`, returning only whether output/user options are mentioned.
+   Missing help text is not proof that an option is unsupported.
+3. Compare the original combined invocation without `--user` to the corrected one.
+4. Request `display=diskusage` and `display=fileusage` separately with `--user`.
+5. Inspect the known legacy backup as before.
+
+Nonzero exits now expose only byte counts, JSON/text/empty output shape,
+recognized UAPI status, numeric exit status and fixed hints for invalid CLI
+options, missing account context, missing cPanel components, access denial,
+quota exhaustion and unsupported metrics. Raw stdout/stderr, user identities,
+API bodies and credentials are never emitted. A valid JSON payload from a
+failed process is classified but is **never accepted as quota verification**.
+Unknown exit-2 failures remain unknown rather than receiving a guessed cause.
+
+Disk and inode quotas can be verified independently if their individual calls
+return valid usage, limits and units. A disk-only success cannot satisfy the
+inode requirement. Normal deployment still requires both metrics in a
+successful combined response; individual probes are diagnostic, not a bypass.
+If only individual calls work, verify that behavior with Namecheap before
+changing the acceptance procedure. If neither works, ask support to examine
+account context, CLI argument support, jailed execution and cPanel backend
+availability using the sanitized hints.
+
+Other read-only candidates remain authenticated cPanel Disk Usage / File Usage,
+HTTPS StatsBar and Quota::get_quota_info, or host-exposed per-user quota reports.
+Their coverage of both limits, units, freshness and account identity must be
+confirmed on this installation before adding an adapter. The previously
+observed HTTP 403 makes HTTPS an unverified alternative. Filesystem `df` or
+`statfs` and directory `du` are supplementary measurements only.
+
+Safest next step: run the streamed `--diagnose-quota` command documented above
+using existing authorized SSH access, without pushing or deploying. If adding
+`--user` succeeds and the original invocation fails, the missing context is
+confirmed. Otherwise use the fixed output hints and separate metric results
+to request a Namecheap investigation. Keep deployment blocked until both
+account quotas and sufficient headroom are verifiable. Do not remove the
+known failed backup without a separate authorized cleanup decision.
