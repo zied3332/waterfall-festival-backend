@@ -39,6 +39,10 @@ export class LocalImageStorageService {
       "events",
     );
 
+  getUploadsRoot(): string {
+    return this.uploadsRoot;
+  }
+
   /*
    * ============================================================
    * SAVE EVENT POSTER

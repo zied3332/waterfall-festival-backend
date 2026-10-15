@@ -52,6 +52,10 @@ export class LocalUploadService {
       "videos",
     );
 
+  getUploadsRoot(): string {
+    return this.uploadsRoot;
+  }
+
   async uploadGalleryImage(
     file: Express.Multer.File,
   ): Promise<LocalUploadResult> {
