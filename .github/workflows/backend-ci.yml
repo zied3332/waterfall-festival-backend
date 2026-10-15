@@ -10,6 +10,29 @@ on:
       - main
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      application: ${{ steps.scope.outputs.application }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify the complete pushed range
+        id: scope
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: node scripts/deploy/deployment-scope.mjs
+
+  deployment-eligible:
+    name: Application changes qualify for deployment
+    needs: changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.application == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Application changes qualify; successful Backend CI is still required.'
+
   build:
     name: Lint, Test and Build
     runs-on: ubuntu-latest
@@ -43,7 +66,7 @@ jobs:
         run: |
           bash -n scripts/deploy/cpanel-deploy.sh
           node --check scripts/deploy/backend-deploy.mjs
-          node --test tests/backend-deploy.test.mjs tests/cpanel-upload.test.mjs
+          node --test tests/backend-deploy.test.mjs tests/cpanel-upload.test.mjs tests/deployment-scope.test.mjs tests/inode-inventory.test.mjs
 
       - name: Run unit tests
         run: npm test -- --runInBand

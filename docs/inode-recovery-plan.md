@@ -184,3 +184,24 @@ partial results, redaction, manual trigger isolation, exact streamed command,
 and cleanup of runner fixtures. The production deployment files are unchanged.
 Production counts and an achievable cleanup total remain pending an explicitly
 approved diagnostic run.
+
+## Proposed publication deployment gate
+
+Backend CI continues on all main pushes and main pull requests. Its new scope
+job compares the entire push range (`event.before` to checked-out HEAD), with
+full history and rename detection disabled so runtime deletions also count.
+Only `src/`, `prisma/`, package manifests and the listed Nest/TypeScript/Prisma
+build configuration qualify for automatic deployment. Documentation, diagnostic,
+workflow and deployment-tooling changes alone do not qualify; deploy those
+explicitly with the existing main-only manual Deploy Backend action when needed.
+Unknown ranges never qualify; Git failures fail CI rather than allow deployment.
+
+Deploy Backend still receives Backend CI completion events. A runner-only gate
+with read-only Actions access checks the same CI run for a successful
+`Application changes qualify for deployment` job, as well as successful CI,
+main push and same-repository provenance. Failed API access fails closed. No
+SSH secrets or production commands are used by that gate. Diagnostic-only
+publication can produce a Deploy Backend workflow record, but its production
+job is skipped. Inventory completion is not a deployment trigger. This change
+must ship with the diagnostic publication; the inventory remains manual-only.
+No deployment safety scripts, storage checks or recovery protections change.
