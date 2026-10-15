@@ -15,6 +15,7 @@ import { SettingsModule } from "./settings/settings.module.js";
 import { TicketsModule } from "./tickets/tickets.module.js";
 import { UsersModule } from "./users/users.module.js";
 import { AssistantModule } from "./assistant/assistant.module.js";
+import { StorageModule } from './storage/storage.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -32,6 +33,7 @@ import { AssistantModule } from "./assistant/assistant.module.js";
     TicketsModule,
     SettingsModule,
     AssistantModule,
+    StorageModule,
   ],
   controllers: [
     AppController,

@@ -44,6 +44,7 @@ import {
 
   exports: [
     EventsService,
+    LocalImageStorageService,
   ],
 })
 export class EventsModule {}
