@@ -75,8 +75,16 @@ describe('Admin gallery deletion HTTP contract', () => {
     expect(deletion.status).not.toHaveBeenCalled();
   });
   it('keeps single deletion response fields and cleanup status', async () => {
-    const body = { id: 12, title: 'Existing image', deletion: result };
-    gallery.remove.mockResolvedValueOnce(body as Awaited<ReturnType<GalleryService['remove']>>);
+    const date = new Date('2026-10-15T00:00:00Z');
+    const deleted: Awaited<ReturnType<GalleryService['remove']>> = {
+      id: 12, title: 'Existing image', mediaType: 'IMAGE', description: null,
+      altText: null, publicId: 'gallery/images/image.jpg', imageUrl: '/uploads/gallery/images/image.jpg',
+      thumbnailUrl: null, duration: null, width: null, height: null, status: 'DRAFT',
+      isFeatured: false, sortOrder: 0, showOnHomepage: false, homepageSortOrder: 0,
+      eventId: null, createdAt: date, updatedAt: date, deletion: result,
+    };
+    const body = { ...deleted, createdAt: date.toISOString(), updatedAt: date.toISOString() };
+    gallery.remove.mockResolvedValueOnce(deleted);
     await request(server).delete('/admin/gallery/12').set('Authorization', `Bearer ${admin}`).expect(200, body);
     expect(gallery.remove).toHaveBeenCalledWith(12);
   });
