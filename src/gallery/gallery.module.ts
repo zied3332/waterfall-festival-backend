@@ -25,6 +25,7 @@ import {
 import {
   GalleryService,
 } from "./gallery.service.js";
+import { GalleryDeletionService } from './gallery-deletion.service.js';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import {
 
   providers: [
     GalleryService,
+    GalleryDeletionService,
   ],
 })
 export class GalleryModule {}

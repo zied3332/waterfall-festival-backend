@@ -8,9 +8,7 @@ import {
   PrismaService,
 } from "../prisma/prisma.service.js";
 
-import {
-  LocalUploadService,
-} from "../uploads/local-upload.service.js";
+import { GalleryDeletionService } from './gallery-deletion.service.js';
 
 import {
   CreateGalleryImageDto,
@@ -26,8 +24,7 @@ export class GalleryService {
     private readonly prisma:
       PrismaService,
 
-    private readonly localUploadService:
-      LocalUploadService,
+    private readonly deletionService: GalleryDeletionService,
   ) {}
 
   async findPublished() {
@@ -283,46 +280,12 @@ export class GalleryService {
   async remove(
     id: number,
   ) {
-    const galleryItem =
-      await this.prisma.galleryImage.findUnique({
-        where: {
-          id,
-        },
+    const { records, result } = await this.deletionService.delete([id], false);
+    return { ...records[0], deletion: result };
+  }
 
-        select: {
-          id: true,
-          publicId: true,
-        },
-      });
-
-    if (!galleryItem) {
-      throw new NotFoundException(
-        `Gallery media item with ID ${id} was not found.`,
-      );
-    }
-
-    /*
-     * New locally uploaded files have public IDs such as:
-     *
-     * gallery/images/filename.webp
-     * gallery/videos/filename.mp4
-     *
-     * LocalUploadService intentionally ignores other
-     * public IDs, including legacy Cloudinary IDs.
-     */
-    if (
-      galleryItem.publicId
-    ) {
-      await this.localUploadService.deleteFile(
-        galleryItem.publicId,
-      );
-    }
-
-    return this.prisma.galleryImage.delete({
-      where: {
-        id,
-      },
-    });
+  async removeBatch(ids: number[]) {
+    return (await this.deletionService.delete(ids)).result;
   }
 
   private async validateEvent(

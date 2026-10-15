@@ -1,10 +1,13 @@
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
 } from "@nestjs/common";
 
 import {
   mkdir,
+  lstat,
+  realpath,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -13,7 +16,6 @@ import {
   basename,
   extname,
   join,
-  normalize,
   resolve,
 } from "node:path";
 
@@ -83,43 +85,8 @@ export class LocalUploadService {
   async deleteFile(
     publicId: string,
   ): Promise<void> {
-    /*
-     * Only delete files that belong to the gallery.
-     * This prevents arbitrary filesystem paths from
-     * being passed to this method.
-     */
-    const normalizedPublicId =
-      normalize(publicId)
-        .replaceAll("\\", "/")
-        .replace(/^\/+/, "");
-
-    if (
-      !normalizedPublicId.startsWith(
-        "gallery/images/",
-      ) &&
-      !normalizedPublicId.startsWith(
-        "gallery/videos/",
-      )
-    ) {
-      return;
-    }
-
-    const absolutePath =
-      resolve(
-        this.uploadsRoot,
-        normalizedPublicId,
-      );
-
-    /*
-     * Additional path-traversal protection.
-     */
-    if (
-      !absolutePath.startsWith(
-        `${this.uploadsRoot}${process.platform === "win32" ? "\\" : "/"}`,
-      )
-    ) {
-      return;
-    }
+    await this.validateDeletionPath(publicId);
+    const absolutePath = resolve(this.uploadsRoot, publicId);
 
     try {
       await unlink(
@@ -142,6 +109,29 @@ export class LocalUploadService {
       throw new InternalServerErrorException(
         "Failed to delete the gallery media file from local storage.",
       );
+    }
+  }
+
+  async validateDeletionPath(publicId: string): Promise<void> {
+    if (!/^gallery\/(images|videos)\/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp|mp4|webm|mov)$/.test(publicId)) {
+      throw new BadRequestException('Unsafe gallery storage path.');
+    }
+    // Check every component, including the root and leaf. Windows junctions
+    // are reported as symbolic links by lstat. Never follow them for deletion.
+    let current = this.uploadsRoot;
+    for (const part of ['', ...publicId.split('/')]) {
+      current = part ? join(current, part) : current;
+      try {
+        const stat = await lstat(current);
+        const canonical = await realpath(current);
+        const expected = resolve(current);
+        if (stat.isSymbolicLink() || (process.platform === 'win32' ? canonical.toLowerCase() !== expected.toLowerCase() : canonical !== expected)) {
+          throw new BadRequestException('Linked gallery storage paths are unsafe.');
+        }
+      } catch (error: unknown) {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return;
+        throw error;
+      }
     }
   }
 

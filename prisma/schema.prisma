@@ -393,6 +393,29 @@ model GalleryImage {
   @@index([createdAt])
 }
 
+model GalleryDeletionOperation {
+  id           String   @id @default(uuid())
+  requestedIds Int[]
+  deletedIds   Int[]
+  notFoundIds  Int[]
+  preservedIds Int[]
+  createdAt    DateTime @default(now())
+  tasks        GalleryCleanupTask[]
+}
+
+model GalleryCleanupTask {
+  id          String   @id @default(uuid())
+  operationId String
+  operation   GalleryDeletionOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  publicId    String   @unique
+  status      String   @default("pending")
+  attempts    Int      @default(0)
+  lastError   String?
+  updatedAt   DateTime @updatedAt
+
+  @@index([operationId, status])
+}
+
 model Faq {
   id        Int       @id @default(autoincrement())
   question  String

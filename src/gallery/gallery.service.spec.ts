@@ -16,9 +16,7 @@ import {
   PrismaService,
 } from '../prisma/prisma.service.js';
 
-import {
-  LocalUploadService,
-} from '../uploads/local-upload.service.js';
+import { GalleryDeletionService } from './gallery-deletion.service.js';
 
 import {
   GalleryService,
@@ -41,8 +39,8 @@ describe('GalleryService', () => {
     },
   };
 
-  const localUploadServiceMock = {
-    deleteFile: jest.fn(),
+  const deletionServiceMock = {
+    delete: jest.fn<GalleryDeletionService['delete']>(),
   };
 
   beforeEach(async () => {
@@ -57,8 +55,8 @@ describe('GalleryService', () => {
           },
 
           {
-            provide: LocalUploadService,
-            useValue: localUploadServiceMock,
+            provide: GalleryDeletionService,
+            useValue: deletionServiceMock,
           },
         ],
       }).compile();
@@ -75,5 +73,13 @@ describe('GalleryService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('keeps the single-delete record response and adds cleanup information', async () => {
+    const record = { id: 12, title: 'Image' };
+    const result = { operationId: 'op', status: 'cleanup_failed', cleanup: { failed: 1 } };
+    deletionServiceMock.delete.mockResolvedValueOnce({ records: [record], result } as Awaited<ReturnType<GalleryDeletionService['delete']>>);
+    expect(await service.remove(12)).toEqual({ ...record, deletion: result });
+    expect(deletionServiceMock.delete).toHaveBeenCalledWith([12], false);
   });
 });
