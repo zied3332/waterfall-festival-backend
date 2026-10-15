@@ -6,6 +6,8 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { UserRole } from '../generated/prisma/enums.js';
 import { StorageStatsDto } from './storage-stats.dto.js';
 import { StorageService } from './storage.service.js';
+import { HostingStorageService } from './hosting-storage.service.js';
+import { HostingStorageStatsDto } from './hosting-storage.dto.js';
 
 @ApiTags('Admin Storage')
 @ApiBearerAuth('access-token')
@@ -15,7 +17,15 @@ import { StorageService } from './storage.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(UserRole.ADMIN)
 export class StorageController {
-  constructor(private readonly storage: StorageService) {}
+  constructor(private readonly storage: StorageService, private readonly hosting: HostingStorageService) {}
+
+  @Get('hosting')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({ summary: 'Read cPanel account disk quota and usage', description: 'Returns verified account-level StatsBar disk measurements, cached for five minutes. Failures return a safe unavailable/not_configured state with null values. Independent of local media statistics.' })
+  @ApiOkResponse({ type: HostingStorageStatsDto })
+  getHostingStats(): Promise<HostingStorageStatsDto> {
+    return this.hosting.getStats();
+  }
 
   @Get('stats')
   @Header('Cache-Control', 'no-store')
