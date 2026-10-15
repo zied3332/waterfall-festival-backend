@@ -256,12 +256,38 @@ function incomingFailure(phase, error) {
     'ENFILE',
     'EFBIG',
     'EIO',
+    'UNKNOWN',
+    'ELOOP',
+    'ENAMETOOLONG',
+    'EINVAL',
+    'ENOTSUP',
+    'HOME_NOT_CANONICAL',
+    'HOME_IS_ROOT',
   ];
   const code = codes.includes(error?.code) ? error.code : 'IO_ERROR';
+  const errno =
+    Number.isInteger(error?.errno) && Math.abs(error.errno) <= 65535
+      ? error.errno
+      : null;
+  const syscall = [
+    'realpath',
+    'mkdir',
+    'open',
+    'write',
+    'fsync',
+    'close',
+    'unlink',
+    'access',
+    'stat',
+    'lstat',
+  ].includes(error?.syscall)
+    ? error.syscall
+    : null;
   const failure = new Error(
-    `Incoming upload ${phase} failed (${code}). Deployment stopped; account quota headroom is not verified. No existing application files or backups were changed.`,
+    `Incoming upload ${phase} failed (${code}); diagnostics=${JSON.stringify({ errno, syscall })}. Deployment stopped; account quota headroom is not verified. No existing application files or backups were changed.`,
   );
   failure.code = code;
+  failure.diagnostics = { phase, code, errno, syscall };
   return failure;
 }
 
@@ -322,21 +348,30 @@ export async function probeIncoming(home, name, fs = { open, unlink, access }) {
   return { path, probeBytes: 4096, accountQuotaVerified: false };
 }
 
-export async function prepareIncoming(home, name) {
+export async function prepareIncoming(
+  home,
+  name,
+  fs = { realpath, mkdir, probeIncoming },
+) {
   if (!/^\.waterfall-incoming-\d+-\d+$/.test(name))
     throw new Error('Invalid incoming directory identifier.');
+  let canonical;
   try {
-    if (
-      (await realpath(home)) !== resolve(home) ||
-      dirname(resolve(home)) === resolve(home)
-    )
-      throw new Error('Unsafe home');
+    canonical = await fs.realpath(home);
+  } catch (error) {
+    throw incomingFailure('home resolution', error);
+  }
+  if (canonical !== resolve(home))
+    throw incomingFailure('home validation', { code: 'HOME_NOT_CANONICAL' });
+  if (dirname(resolve(home)) === resolve(home))
+    throw incomingFailure('home validation', { code: 'HOME_IS_ROOT' });
+  try {
     // Exclusive creation: an existing directory is never reused or overwritten.
-    await mkdir(join(home, name), { mode: 0o700 });
+    await fs.mkdir(join(home, name), { mode: 0o700 });
   } catch (error) {
     throw incomingFailure('directory creation', error);
   }
-  return probeIncoming(home, name);
+  return fs.probeIncoming(home, name);
 }
 
 export async function verifyIncomingUpload(home, name, expectedBytes) {

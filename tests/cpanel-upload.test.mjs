@@ -282,3 +282,92 @@ test('fsync quota failure removes the actual probe; cleanup failure stops with a
   assert.equal(retained.length, 1);
   assert.match(retained[0], /^\.write-probe-[a-f0-9]{32}$/);
 });
+
+test('creation diagnostics distinguish canonical-home guard, realpath failure and mkdir errno without writing', async () => {
+  const home = resolve('fixture-home');
+  let mkdirCalls = 0;
+  const fake = {
+    realpath: async () => home,
+    mkdir: async () => {
+      mkdirCalls++;
+    },
+    probeIncoming: async () => {
+      throw Error('probe must not run');
+    },
+  };
+  await assert.rejects(
+    prepareIncoming(home, name, {
+      ...fake,
+      realpath: async () => resolve('other-home'),
+    }),
+    (error) =>
+      error.code === 'HOME_NOT_CANONICAL' &&
+      error.diagnostics.phase === 'home validation' &&
+      !error.message.includes(home),
+  );
+  assert.equal(mkdirCalls, 0);
+  await assert.rejects(
+    prepareIncoming(home, name, {
+      ...fake,
+      realpath: async () => {
+        throw Object.assign(Error('PRIVATE'), {
+          code: 'ELOOP',
+          errno: -40,
+          syscall: 'realpath',
+          path: 'PRIVATE',
+        });
+      },
+    }),
+    (error) =>
+      error.code === 'ELOOP' &&
+      error.diagnostics.phase === 'home resolution' &&
+      error.diagnostics.errno === -40 &&
+      !error.message.includes('PRIVATE'),
+  );
+  assert.equal(mkdirCalls, 0);
+  for (const code of ['UNKNOWN', 'EDQUOT', 'ENOSPC', 'EACCES', 'EEXIST']) {
+    await assert.rejects(
+      prepareIncoming(home, name, {
+        ...fake,
+        mkdir: async () => {
+          throw Object.assign(Error('PRIVATE'), {
+            code,
+            errno: -122,
+            syscall: 'mkdir',
+            path: 'PRIVATE',
+          });
+        },
+      }),
+      (error) =>
+        error.code === code &&
+        error.diagnostics.phase === 'directory creation' &&
+        error.diagnostics.syscall === 'mkdir' &&
+        error.diagnostics.errno === -122 &&
+        !error.message.includes('PRIVATE'),
+    );
+  }
+  const root = resolve('/');
+  await assert.rejects(
+    prepareIncoming(root, name, { ...fake, realpath: async () => root }),
+    (error) =>
+      error.code === 'HOME_IS_ROOT' &&
+      error.diagnostics.phase === 'home validation',
+  );
+  await assert.rejects(
+    prepareIncoming(home, name, {
+      ...fake,
+      mkdir: async () => {
+        throw Object.assign(Error('PRIVATE'), {
+          code: 'PRIVATE',
+          errno: 'PRIVATE',
+          syscall: 'PRIVATE',
+        });
+      },
+    }),
+    (error) =>
+      error.code === 'IO_ERROR' &&
+      error.diagnostics.errno === null &&
+      error.diagnostics.syscall === null &&
+      !error.message.includes('PRIVATE'),
+  );
+});
