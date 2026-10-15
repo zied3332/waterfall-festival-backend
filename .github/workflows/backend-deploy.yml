@@ -37,7 +37,7 @@ jobs:
           DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/ci_database
         run: npm ci
       - name: Validate deployment tooling
-        run: node --test tests/backend-deploy.test.mjs
+        run: node --test tests/backend-deploy.test.mjs tests/cpanel-upload.test.mjs
       - name: Build backend
         env:
           DATABASE_URL: postgresql://ci_user:ci_password@localhost:5432/ci_database

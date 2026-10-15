@@ -220,3 +220,57 @@ are preserved. The unrelated untracked Dockerfile is excluded.
 
 Recommended commit message:
 `fix(deploy): remove cPanel quota dependency and preserve media statistics`
+
+## SCP incoming-path verification
+
+The deployment at `0077c14` created `"$HOME/.waterfall-incoming-RUN-ATTEMPT"`
+through SSH, but passed `~/.waterfall-incoming-RUN-ATTEMPT/backend.tar.gz` to
+SCP. Those are two independently interpreted paths. Modern
+[OpenSSH SCP uses SFTP](https://man.openbsd.org/man1/scp.1), and tilde support
+depends on the server/protocol. The reported generic `dest open ...: Failure`
+does not prove tilde expansion caused the failure. Account quota, permissions,
+or different SSH/SFTP filesystem namespaces remain possible. No production
+connection was made during this fix, so the host-side cause is not confirmed.
+
+The revised preparation sequence is:
+
+1. Keep the existing supplementary filesystem preflight.
+2. Stream the helper with `--prepare-incoming NAME`. It validates the canonical
+   home and identifier, creates a fresh private directory without recursive
+   mkdir or reuse, and verifies a real nonsymlink directory and write access.
+3. Exclusively create a randomized `.write-probe-*` file inside that new
+   directory, write 4096 zero bytes, fsync, close and remove only that probe.
+   Errors distinguish EDQUOT, ENOSPC, EACCES/EPERM, EROFS and other fixed codes;
+   raw errors, account paths and credentials are not logged. Probe cleanup
+   failures also stop preparation. A failed directory remains for inspection.
+4. Capture the verified absolute directory through SSH stdout. The runner
+   validates its characters, absolute form and exact run identifier, rejecting
+   whitespace, shell metacharacters, traversal, banners and multiline output.
+   The path is held privately and used for SCP, migration credentials and the
+   deployment helper. No tilde expansion or fallback to legacy SCP is used.
+5. SCP to that exact absolute path. On error, report a fixed sanitized category
+   and run only another small probe in this run's incoming directory, then
+   stop. A generic SFTP Failure remains unknown, not labeled as a proven quota
+   or path error. Neither raw SCP output nor credentials are printed.
+6. On successful SCP, verify through SSH that `backend.tar.gz` is a regular
+   nonsymlink file with the expected byte length (and within the archive cap)
+   before sending a database URL or invoking deployment. Archive validation,
+   code backup, locking, staging, migrations, recovery and health checks remain.
+
+A successful small write verifies that operation only. It does **not** prove
+account quota headroom for an archive, dependencies or database operations.
+If SSH probes succeed but SFTP fails, ask Namecheap to confirm whether its SSH
+and SFTP namespaces expose the same absolute home path and whether SFTP writes
+are permitted. Do not retry using guessed paths or automatically force `-O`.
+If the probe reports EDQUOT/ENOSPC, review account limits with the provider;
+backup or media deletion needs separate authorization. An uploaded partial
+archive is left intact for investigation. Existing backups, uploads, `.env`
+and database files are never probe or upload destinations.
+
+New regression tests in `tests/cpanel-upload.test.mjs` cover directory creation,
+collisions, traversal/symlink rejection, sanitized quota/permission failures,
+probe cleanup, transferred file verification and the absolute SCP destination.
+Mocked SSH/SCP tests exercise success and failures before upload, during SCP,
+and after upload, ensuring no deployment occurs on failure. Both CI and the
+production workflow run these tests on the runner before SSH. All local tests
+use disposable fixtures and mocks, not production connections.

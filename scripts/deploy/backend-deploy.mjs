@@ -1,5 +1,7 @@
 import {
   lstat,
+  open,
+  access,
   realpath,
   readdir,
   statfs,
@@ -12,6 +14,7 @@ import {
   unlink,
   rmdir,
 } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { resolve, join, dirname, basename, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -237,6 +240,136 @@ export async function preflight(
     codeBackupFiles: manifest.files.length,
     codeBackupBytes: manifest.bytes,
   };
+}
+
+function incomingFailure(phase, error) {
+  const codes = [
+    'EDQUOT',
+    'ENOSPC',
+    'EACCES',
+    'EPERM',
+    'EROFS',
+    'EEXIST',
+    'ENOENT',
+    'ENOTDIR',
+    'EMFILE',
+    'ENFILE',
+    'EFBIG',
+    'EIO',
+  ];
+  const code = codes.includes(error?.code) ? error.code : 'IO_ERROR';
+  const failure = new Error(
+    `Incoming upload ${phase} failed (${code}). Deployment stopped; account quota headroom is not verified. No existing application files or backups were changed.`,
+  );
+  failure.code = code;
+  return failure;
+}
+
+async function checkedIncoming(home, name) {
+  if (!/^\.waterfall-incoming-\d+-\d+$/.test(name))
+    throw new Error('Invalid incoming directory identifier.');
+  if (
+    (await realpath(home)) !== resolve(home) ||
+    dirname(resolve(home)) === resolve(home)
+  )
+    throw new Error('Unsafe incoming home directory.');
+  const path = join(home, name);
+  const info = await lstat(path);
+  if (
+    !info.isDirectory() ||
+    info.isSymbolicLink() ||
+    (await realpath(path)) !== resolve(path)
+  )
+    throw new Error('Incoming directory is not a verified real directory.');
+  return path;
+}
+
+export async function probeIncoming(home, name, fs = { open, unlink, access }) {
+  let path;
+  try {
+    path = await checkedIncoming(home, name);
+    await fs.access(path, fsConstants.W_OK);
+  } catch (error) {
+    throw incomingFailure('directory verification', error);
+  }
+  const probe = join(path, `.write-probe-${randomBytes(16).toString('hex')}`);
+  let handle;
+  let owned = false;
+  let failure;
+  try {
+    handle = await fs.open(probe, 'wx', 0o600);
+    owned = true;
+    await handle.writeFile(Buffer.alloc(4096));
+    await handle.sync();
+  } catch (error) {
+    failure = incomingFailure('write probe', error);
+  } finally {
+    try {
+      if (handle) await handle.close();
+    } catch (error) {
+      failure ??= incomingFailure('probe close', error);
+    }
+    try {
+      if (owned) await fs.unlink(probe);
+    } catch (error) {
+      const cleanupFailure = incomingFailure('probe cleanup', error);
+      if (failure)
+        cleanupFailure.message += ` Earlier probe error: ${failure.code}.`;
+      failure = cleanupFailure;
+    }
+  }
+  if (failure) throw failure;
+  return { path, probeBytes: 4096, accountQuotaVerified: false };
+}
+
+export async function prepareIncoming(home, name) {
+  if (!/^\.waterfall-incoming-\d+-\d+$/.test(name))
+    throw new Error('Invalid incoming directory identifier.');
+  try {
+    if (
+      (await realpath(home)) !== resolve(home) ||
+      dirname(resolve(home)) === resolve(home)
+    )
+      throw new Error('Unsafe home');
+    // Exclusive creation: an existing directory is never reused or overwritten.
+    await mkdir(join(home, name), { mode: 0o700 });
+  } catch (error) {
+    throw incomingFailure('directory creation', error);
+  }
+  return probeIncoming(home, name);
+}
+
+export async function verifyIncomingUpload(home, name, expectedBytes) {
+  try {
+    const path = await checkedIncoming(home, name);
+    const archive = join(path, 'backend.tar.gz');
+    const info = await lstat(archive);
+    if (
+      !info.isFile() ||
+      info.isSymbolicLink() ||
+      info.size !== integer(expectedBytes, undefined, 'upload size') ||
+      info.size > 128 * MiB
+    )
+      throw new Error('size or type mismatch');
+    return {
+      status: 'verified',
+      archiveBytes: info.size,
+      accountQuotaVerified: false,
+    };
+  } catch (error) {
+    throw incomingFailure('archive verification', error);
+  }
+}
+
+export function uploadErrorCategory(text) {
+  if (/quota exceeded|EDQUOT/i.test(text)) return 'account_quota_exceeded';
+  if (/no space left|ENOSPC/i.test(text)) return 'space_or_inode_exhaustion';
+  if (/permission denied|EACCES|not permitted/i.test(text))
+    return 'permission_denied';
+  if (/no such file|not found/i.test(text)) return 'destination_not_found';
+  if (/read.only file system|EROFS/i.test(text)) return 'read_only_filesystem';
+  if (/connection|timed out|broken pipe/i.test(text)) return 'transport_error';
+  return 'sftp_upload_failed_unknown';
 }
 
 export async function retentionReport(directory, keep) {
@@ -534,6 +667,53 @@ async function productionHealth() {
 
 async function main() {
   const [mode, ...args] = process.argv.slice(2);
+  if (
+    ['--prepare-incoming', '--probe-incoming', '--verify-incoming'].includes(
+      mode,
+    )
+  ) {
+    const home = resolve(process.env.HOME);
+    if (mode === '--prepare-incoming')
+      console.log((await prepareIncoming(home, args[0])).path);
+    else if (mode === '--probe-incoming') {
+      const report = await probeIncoming(home, args[0]);
+      console.log(
+        JSON.stringify({
+          status: 'write_probe_ok',
+          probeBytes: report.probeBytes,
+          accountQuotaVerified: false,
+        }),
+      );
+    } else
+      console.log(
+        JSON.stringify(await verifyIncomingUpload(home, args[0], args[1])),
+      );
+    return;
+  }
+  if (mode === '--upload-error') {
+    let text = '';
+    try {
+      const handle = await open(args[0], 'r');
+      try {
+        const buffer = Buffer.alloc(65536);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        text = buffer.subarray(0, bytesRead).toString('utf8');
+      } finally {
+        await handle.close();
+      }
+    } catch {
+      /* Do not print raw local errors. */
+    }
+    console.error(
+      JSON.stringify({
+        phase: 'scp_upload',
+        category: uploadErrorCategory(text),
+        accountQuotaVerified: false,
+      }),
+    );
+    return;
+  }
+
   if (mode === '--package') {
     const manifest = await archiveCode(process.cwd(), resolve(args[0]));
     console.log(
