@@ -21,7 +21,7 @@ describe('Admin gallery deletion HTTP contract', () => {
   const operationId = '7358c4c1-4ee7-4cdd-8a83-f10d602bcab8';
   const result = { operationId, status: 'completed', requestedCount: 3, deletedIds: [12, 18], notFoundIds: [27], preservedAssetIds: [], cleanup: { pending: 0, succeeded: 2, failed: 0 } };
   const gallery = { removeBatch: jest.fn<GalleryService['removeBatch']>(), remove: jest.fn<GalleryService['remove']>(), findOne: jest.fn<GalleryService['findOne']>() };
-  const deletion = { status: jest.fn<GalleryDeletionService['status']>(), retry: jest.fn<GalleryDeletionService['retry']>() };
+  const deletion = { status: jest.fn<GalleryDeletionService['status']>(), retry: jest.fn<GalleryDeletionService['retry']>(), listPending: jest.fn<GalleryDeletionService['listPending']>() };
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       controllers: [AdminGalleryController],
@@ -40,7 +40,7 @@ describe('Admin gallery deletion HTTP contract', () => {
   afterAll(async () => { await app.close(); });
   beforeEach(() => {
     jest.clearAllMocks(); gallery.removeBatch.mockResolvedValue(result);
-    deletion.status.mockResolvedValue(result); deletion.retry.mockResolvedValue(result);
+    deletion.status.mockResolvedValue(result); deletion.retry.mockResolvedValue(result); deletion.listPending.mockResolvedValue([result]);
   });
   it('routes batch deletion to the static endpoint and returns the result', async () => {
     const response = await request(server).delete('/admin/gallery/batch').set('Authorization', `Bearer ${admin}`).send({ ids: [12, 18, 27] }).expect(200);
@@ -56,15 +56,16 @@ describe('Admin gallery deletion HTTP contract', () => {
     await request(server).delete('/admin/gallery/batch').set('Authorization', `Bearer ${admin}`).send({ ids: [1], publicId: 'gallery/images/secret.jpg', imageUrl: '/uploads/gallery/images/secret.jpg' }).expect(400);
     expect(gallery.removeBatch).not.toHaveBeenCalled();
   });
-  it.each(['batch', `operations/${operationId}`, `operations/${operationId}/retry`, '12'])('requires JWT and ADMIN for %s', async path => {
+  it.each(['batch', 'operations', `operations/${operationId}`, `operations/${operationId}/retry`, '12'])('requires JWT and ADMIN for %s', async path => {
     const endpoint = `/admin/gallery/${path}`;
-    const invoke = () => path.endsWith('/retry') ? request(server).post(endpoint) : path.startsWith('operations/') ? request(server).get(endpoint) : request(server).delete(endpoint).send({ ids: [12] });
+    const invoke = () => path.endsWith('/retry') ? request(server).post(endpoint) : path.startsWith('operations') ? request(server).get(endpoint) : request(server).delete(endpoint).send({ ids: [12] });
     await invoke().expect(401);
     await invoke().set('Authorization', 'Bearer invalid').expect(401);
     await invoke().set('Authorization', `Bearer ${member}`).expect(403);
     expect(gallery.removeBatch).not.toHaveBeenCalled(); expect(deletion.retry).not.toHaveBeenCalled();
   });
   it('returns operation status and accepts authenticated retries', async () => {
+    await request(server).get('/admin/gallery/operations').set('Authorization', `Bearer ${admin}`).expect(200, [result]);
     await request(server).get(`/admin/gallery/operations/${operationId}`).set('Authorization', `Bearer ${admin}`).expect(200, result);
     await request(server).post(`/admin/gallery/operations/${operationId}/retry`).set('Authorization', `Bearer ${admin}`).expect(200, result);
     expect(deletion.retry).toHaveBeenCalledWith(operationId);

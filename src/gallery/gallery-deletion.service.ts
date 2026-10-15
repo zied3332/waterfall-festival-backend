@@ -52,6 +52,9 @@ export class GalleryDeletionService {
         if (record.thumbnailUrl && record.thumbnailUrl !== record.imageUrl && !record.thumbnailUrl.startsWith('https://res.cloudinary.com/')) {
           throw new BadRequestException('Separate thumbnail ownership is unverified.');
         }
+        if (record.thumbnailUrl?.startsWith('https://res.cloudinary.com/') && record.thumbnailUrl !== record.imageUrl && !preservedIds.includes(record.id)) {
+          preservedIds.push(record.id);
+        }
       }
       const deletedIds = ids.filter(id => records.some(record => record.id === id));
       await tx.galleryDeletionOperation.create({ data: {
@@ -74,13 +77,25 @@ export class GalleryDeletionService {
   async status(operationId: string) {
     const operation = await this.prisma.galleryDeletionOperation.findUnique({ where: { id: operationId }, include: { tasks: true } });
     if (!operation) throw new NotFoundException('Deletion operation was not found.');
+    return this.summarize(operation);
+  }
+
+  async listPending() {
+    const operations = await this.prisma.galleryDeletionOperation.findMany({
+      where: { tasks: { some: { status: { not: 'succeeded' } } } },
+      include: { tasks: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100,
+    });
+    return operations.map(operation => this.summarize(operation));
+  }
+
+  private summarize(operation: Prisma.GalleryDeletionOperationGetPayload<{ include: { tasks: true } }>) {
     const cleanup = {
       pending: operation.tasks.filter(task => task.status === 'pending').length,
       succeeded: operation.tasks.filter(task => task.status === 'succeeded').length,
       failed: operation.tasks.filter(task => task.status === 'failed').length,
     };
     return {
-      operationId, status: cleanup.failed ? 'cleanup_failed' : cleanup.pending ? 'cleanup_pending' : 'completed',
+      operationId: operation.id, status: cleanup.failed ? 'cleanup_failed' : cleanup.pending ? 'cleanup_pending' : 'completed',
       requestedCount: operation.requestedIds.length, deletedIds: operation.deletedIds,
       notFoundIds: operation.notFoundIds, preservedAssetIds: operation.preservedIds, cleanup,
     };

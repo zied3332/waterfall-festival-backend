@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/require-await */
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { GalleryDeletionService } from './gallery-deletion.service.js';
+import { Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LocalUploadService } from '../uploads/local-upload.service.js';
 
@@ -30,6 +31,7 @@ describe('Durable gallery deletion', () => {
         return data;
       }),
       findUnique: jest.fn(async () => operation && { ...operation, tasks }),
+      findMany: jest.fn(async () => operation && tasks.some(task => task.status !== 'succeeded') ? [{ ...operation, tasks }] : []),
     },
     galleryCleanupTask: {
       findUnique: jest.fn(async ({ where }: { where: { id?: string; publicId?: string } }) => tasks.find(task => where.id ? task.id === where.id : task.publicId === where.publicId) ?? null),
@@ -73,6 +75,26 @@ describe('Durable gallery deletion', () => {
     await expect(service.delete([1])).rejects.toThrow('database failure');
     expect(storage.deleteFile).not.toHaveBeenCalled();
   });
+  it('does not touch files when the transaction fails to commit after its callback', async () => {
+    prisma.$transaction.mockImplementationOnce(async callback => {
+      await callback(tx);
+      throw new Error('commit failed');
+    });
+    await expect(service.delete([1])).rejects.toThrow('commit failed');
+    expect(storage.deleteFile).not.toHaveBeenCalled();
+  });
+  it('retains discoverable pending work when cleanup is interrupted and retries after restart', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    prisma.$transaction.mockImplementationOnce(async callback => { const result = await callback(tx); committed = true; return result; });
+    prisma.$transaction.mockRejectedValueOnce(new Error('cleanup database unavailable'));
+    const { result } = await service.delete([1]);
+    expect(result.status).toBe('cleanup_pending');
+    expect(await service.listPending()).toEqual([result]);
+    const restarted = new GalleryDeletionService(prisma as unknown as PrismaService, storage as unknown as LocalUploadService);
+    expect((await restarted.retry(result.operationId)).status).toBe('completed');
+    expect(await restarted.listPending()).toEqual([]);
+    warn.mockRestore();
+  });
   it('records cleanup failure, retries successfully, and skips completed tasks', async () => {
     storage.deleteFile.mockRejectedValueOnce(new Error('permission denied'));
     const { result } = await service.delete([1]);
@@ -106,6 +128,27 @@ describe('Durable gallery deletion', () => {
     const { result } = await service.delete([1]);
     expect(result.preservedAssetIds).toEqual([1]);
     expect(storage.deleteFile).not.toHaveBeenCalled();
+  });
+  it('reports preserved remote thumbnails alongside successful local cleanup', async () => {
+    rows[0].thumbnailUrl = 'https://res.cloudinary.com/legacy/image/upload/poster.jpg';
+    const { result } = await service.delete([1]);
+    expect(result.preservedAssetIds).toEqual([1]);
+    expect(result.cleanup.succeeded).toBe(1);
+  });
+  it('rejects separate local thumbnails with unverified ownership', async () => {
+    rows[0].thumbnailUrl = '/uploads/gallery/images/poster.jpg';
+    await expect(service.delete([1])).rejects.toThrow('thumbnail ownership');
+    expect(tx.galleryImage.deleteMany).not.toHaveBeenCalled();
+  });
+  it('rejects references shared even between selected images', async () => {
+    references = [{ source: 'gallery', id: 2, value: '/uploads/gallery/images/1.jpg' }];
+    await expect(service.delete([1, 2])).rejects.toThrow('shared');
+    expect(tx.galleryImage.deleteMany).not.toHaveBeenCalled();
+  });
+  it('rejects assets already reserved by cleanup tasks', async () => {
+    tasks = [{ id: 'existing', publicId: 'gallery/images/1.jpg', operationId: 'existing-operation', status: 'failed', attempts: 1, lastError: 'busy' }];
+    await expect(service.delete([1])).rejects.toThrow('already belongs');
+    expect(tx.galleryImage.deleteMany).not.toHaveBeenCalled();
   });
   it('rejects ambiguous providers', async () => {
     rows[0].imageUrl = 'https://other.org/asset.jpg';

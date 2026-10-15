@@ -13,7 +13,7 @@ export class GalleryDeletionResponseDto {
   @ApiProperty({ example: 3 }) requestedCount!: number;
   @ApiProperty({ type: [Number], example: [12, 18] }) deletedIds!: number[];
   @ApiProperty({ type: [Number], example: [27] }) notFoundIds!: number[];
-  @ApiProperty({ type: [Number], description: 'Deleted records whose legacy Cloudinary assets were deliberately preserved.' }) preservedAssetIds!: number[];
+  @ApiProperty({ type: [Number], description: 'Deleted records whose legacy Cloudinary media or thumbnails were deliberately preserved.' }) preservedAssetIds!: number[];
   @ApiProperty({ type: GalleryCleanupSummaryDto }) cleanup!: GalleryCleanupSummaryDto;
 }
 

@@ -388,6 +388,13 @@ export class AdminGalleryController {
     return this.galleryService.removeBatch(body.ids);
   }
 
+  @Get('operations')
+  @ApiOperation({ summary: 'Discover pending or failed cleanup operations', description: 'Returns up to 100 most recent unfinished operations, including those whose initial HTTP response was lost.' })
+  @ApiOkResponse({ type: GalleryDeletionResponseDto, isArray: true })
+  pendingDeletions() {
+    return this.deletionService.listPending();
+  }
+
   @Get('operations/:operationId')
   @ApiOperation({ summary: 'Get gallery deletion and cleanup status' })
   @ApiOkResponse({ type: GalleryDeletionResponseDto })

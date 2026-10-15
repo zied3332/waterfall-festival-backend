@@ -82,4 +82,8 @@ describe('GalleryService', () => {
     expect(await service.remove(12)).toEqual({ ...record, deletion: result });
     expect(deletionServiceMock.delete).toHaveBeenCalledWith([12], false);
   });
+  it('rejects ownership changes even when called without the HTTP validation pipe', async () => {
+    await expect(service.update(12, { publicId: 'gallery/images/other.jpg' } as unknown as Parameters<GalleryService['update']>[1])).rejects.toThrow('Storage references');
+    expect(prismaMock.galleryImage.update).not.toHaveBeenCalled();
+  });
 });
