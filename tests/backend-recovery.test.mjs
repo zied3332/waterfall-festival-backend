@@ -1,0 +1,78 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, symlink, link, rm, realpath, readdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, basename } from 'node:path';
+import { verifyRecovery, sanitizeRecovery } from '../scripts/deploy/verify-backend-recovery.mjs';
+const name = 'backend-20261015-090000';
+async function fixture(t) {
+  const home = await realpath(await mkdtemp(join(tmpdir(), 'waterfall-recovery-test-')));
+  t.after(async () => { assert.ok(basename(home).startsWith('waterfall-recovery-test-')); await rm(home, { recursive: true, force: true }); });
+  const put = async (path) => { await mkdir(join(home,path,'..'), {recursive:true}); await writeFile(join(home,path), 'PRIVATE'); };
+  await put('waterfall-backend/dist/src/main.js');
+  await mkdir(join(home,'waterfall-releases'));
+  for(const file of ['dist/src/main.js','package.json','package-lock.json','prisma/schema.prisma','node_modules/pkg/index.js']) await put(`waterfall-backups/${name}/${file}`);
+  return {home,put};
+}
+test('structural suitability never claims tested restore or confirmed inode savings', async t => {
+  const {home}=await fixture(t), rows=[];
+  const before=await readdir(home);
+  await verifyRecovery(home,r=>rows.push(r));
+  const row=rows.find(r=>r.kind==='backup');
+  assert.equal(row.structure,'appears_suitable');
+  assert.equal(row.restoreTested,false);
+  assert.equal(row.reclaimableInodes,null);
+  assert.equal(rows[0].databaseRecoveryVerified,false);
+  assert.equal(rows[0].safestCandidate,'not_established');
+  assert.ok(!JSON.stringify(rows).includes(home));
+  assert.deepEqual(await readdir(home),before);
+});
+test('active release references protect backup dependencies, hard links are reported', async t => {
+  const {home,put}=await fixture(t);
+  const candidate=join(home,'waterfall-backups',name,'node_modules');
+  await symlink(candidate,join(home,'waterfall-backend/node_modules'),process.platform==='win32'?'junction':'dir');
+  await link(join(candidate,'pkg/index.js'),join(home,'external-link'));
+  await put('waterfall-releases/release-aaaaaaaaaaaa-100-abcd/dist/src/main.js');
+  await symlink(candidate,join(home,'waterfall-releases/release-aaaaaaaaaaaa-100-abcd/node_modules'),process.platform==='win32'?'junction':'dir');
+  const rows=[];await verifyRecovery(home,r=>rows.push(r));
+  assert.equal(rows[0].activeBackupReference,true);
+  const row=rows.find(r=>r.kind==='backup');
+  assert.equal(row.protected,true);assert.equal(row.backupReference,true);
+  assert.equal(row.dependencyType,'contains_hardlinks');assert.equal(row.hardLinkedFiles,1);
+});
+test('symlinked candidate boundary is not traversed or declared suitable', async t => {
+  const {home}=await fixture(t);
+  const other='backend-20261014-204213';
+  await symlink(join(home,'waterfall-backups',name),join(home,'waterfall-backups',other),process.platform==='win32'?'junction':'dir');
+  const rows=[];await verifyRecovery(home,r=>rows.push(r));
+  const row=rows.find(r=>r.target===`${other}/node_modules`);
+  assert.equal(row.scanComplete,false);assert.equal(row.structure,'unverified');assert.equal(row.uniqueInodes,0);
+});
+test('budget exhaustion and missing files never establish recovery', async t => {
+  const {home}=await fixture(t),rows=[];
+  assert.equal(await verifyRecovery(home,r=>rows.push(r),{maxEntries:1}),false);
+  assert.equal(rows[0].scanComplete,false);
+  assert.ok(rows.filter(r=>r.kind==='backup').every(r=>r.structure==='unverified'));
+});
+test('database artifact metadata is not a verified database recovery point', async t=>{
+  const {home,put}=await fixture(t);await put(`waterfall-backups/${name}/database.dump`);
+  const rows=[];await verifyRecovery(home,r=>rows.push(r));
+  assert.equal(rows[0].databaseArtifactFound,true);assert.equal(rows[0].databaseRecoveryVerified,false);
+  assert.ok(!JSON.stringify(rows).includes('database.dump'));
+});
+test('output whitelist suppresses sensitive fields and optimistic claims',()=>{
+  const safe=sanitizeRecovery(JSON.stringify({schema:'backend_recovery_v1',kind:'backup',target:'/home/PRIVATE',secret:'PRIVATE',restoreTested:true,cleanupApproved:true,reclaimableInodes:999}));
+  assert.ok(!JSON.stringify(safe).includes('PRIVATE'));assert.equal(safe.restoreTested,undefined);assert.equal(safe.reclaimableInodes,undefined);
+  assert.equal(sanitizeRecovery('raw PRIVATE error'),null);
+});
+test('workflow is manual-only and SSH executes only the streamed verifier',()=>{
+  const workflow=readFileSync('.github/workflows/backend-recovery-verify.yml','utf8');
+  assert.match(workflow,/name: Verify Backend Recovery/);assert.match(workflow,/workflow_dispatch:/);
+  assert.doesNotMatch(workflow,/workflow_run:|push:|PRODUCTION_DATABASE_URL|CPANEL_API_TOKEN|cpanel-deploy/);
+  const source=readFileSync('scripts/deploy/verify-backend-recovery.mjs','utf8');
+  assert.doesNotMatch(source,/\b(?:writeFile|readFile|unlink|mkdir|chmod|chown|rename)\b|node:child_process/);
+  const wrapper=readFileSync('scripts/deploy/verify-backend-recovery.sh','utf8');
+  assert.match(wrapper,/node --input-type=module - --verify 2>&1/);
+  assert.doesNotMatch(wrapper,/--deploy|--inventory|\bscp\b/);
+});

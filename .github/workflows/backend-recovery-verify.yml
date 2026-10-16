@@ -1,0 +1,39 @@
+name: Verify Backend Recovery
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-production
+  cancel-in-progress: false
+
+jobs:
+  recovery:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout read-only diagnostic
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup runner Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate recovery verifier and safety tests
+        run: |
+          bash -n scripts/deploy/verify-backend-recovery.sh
+          node --check scripts/deploy/verify-backend-recovery.mjs
+          node --test tests/backend-recovery.test.mjs
+      - name: Read-only backend recovery verification through existing SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_KEY }}
+          SSH_PASSPHRASE: ${{ secrets.CPANEL_SSH_PASSPHRASE }}
+          SSH_HOST: ${{ secrets.CPANEL_HOST }}
+          SSH_USER: ${{ secrets.CPANEL_USERNAME }}
+          SSH_PORT: ${{ secrets.CPANEL_PORT }}
+        run: bash scripts/deploy/verify-backend-recovery.sh
