@@ -76,3 +76,50 @@ test('workflow is manual-only and SSH executes only the streamed verifier',()=>{
   assert.match(wrapper,/node --input-type=module - --verify 2>&1/);
   assert.doesNotMatch(wrapper,/--deploy|--inventory|\bscp\b/);
 });
+
+test('time and entry exhaustion expose finite phase reasons without paths',async t=>{
+  const {home}=await fixture(t);
+  for (const options of [{maxMilliseconds:0},{maxEntries:1}]) {
+    const rows=[];
+    assert.equal(await verifyRecovery(home,r=>rows.push(r),options),false);
+    const summary=sanitizeRecovery(JSON.stringify(rows[0]));
+    const reasons=summary.phases.flatMap(p=>p.reasons);
+    assert.ok(reasons.includes(options.maxMilliseconds===0?'time_limit':'entry_limit'));
+    assert.equal(summary.databaseScanComplete,false);
+    assert.ok(!JSON.stringify(summary).includes(home));
+  }
+});
+
+test('internal dependency links remain protected and are distinguished from active references',async t=>{
+  const {home}=await fixture(t);
+  const base=join(home,'waterfall-backups',name,'node_modules');
+  await symlink(join(base,'pkg'),join(base,'pkg-alias'),process.platform==='win32'?'junction':'dir');
+  const rows=[];await verifyRecovery(home,r=>rows.push(r));
+  const row=rows.find(r=>r.kind==='backup');
+  assert.equal(row.backupReference,true);
+  assert.equal(row.protected,true);
+  assert.equal(row.internalDependencyReference,true);
+  assert.equal(row.activeReference,false);
+  assert.equal(row.releaseReference,false);
+});
+
+test('legacy resolved runtime is distinguished from an unresolved runtime',async t=>{
+  const {home}=await fixture(t), rows=[];
+  await verifyRecovery(home,r=>rows.push(r));
+  assert.equal(rows[0].runtimeLayout,'legacy_directory');
+  assert.equal(rows[0].activeRuntimeIdentified,true);
+  const missing=join(home,'missing-home');await mkdir(missing);
+  const unknown=[];await verifyRecovery(missing,r=>unknown.push(r));
+  assert.equal(unknown[0].runtimeLayout,'unresolved');
+  assert.ok(unknown[0].phases.some(p=>p.reasons.includes('ENOENT')));
+});
+
+test('unresolved links report safe failure reasons and malicious diagnostic strings are suppressed',async t=>{
+  const {home}=await fixture(t);
+  await symlink(join(home,'missing-PRIVATE'),join(home,'waterfall-backend/broken'),process.platform==='win32'?'junction':'dir');
+  const rows=[];assert.equal(await verifyRecovery(home,r=>rows.push(r)),false);
+  assert.ok(rows[0].phases.some(p=>p.reasons.includes('unresolved_symlink')));
+  const safe=sanitizeRecovery(JSON.stringify({schema:'backend_recovery_v1',kind:'summary',phases:[{phase:'active_references',reasons:['EACCES','PRIVATE /home/user'],elapsedMilliseconds:1,visitedEntries:2},{phase:'PRIVATE',reasons:[]}]}));
+  assert.equal(safe.phases.length,1);assert.deepEqual(safe.phases[0].reasons,['EACCES']);
+  assert.ok(!JSON.stringify(safe).includes('PRIVATE'));
+});

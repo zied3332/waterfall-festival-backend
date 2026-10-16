@@ -37,5 +37,7 @@ ssh -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
   | node scripts/deploy/verify-backend-recovery.mjs --filter
 statuses=("${PIPESTATUS[@]}")
 set -e
+# Numeric pipeline statuses identify transport/helper vs runner filter failure.
+printf '{"schema":"backend_recovery_transport_v1","sshExitStatus":%d,"filterExitStatus":%d}\n' "${statuses[0]}" "${statuses[1]}"
 if (( statuses[0] != 0 || statuses[1] != 0 )); then echo 'Read-only recovery verification incomplete or SSH unavailable; raw errors suppressed. No cleanup or deployment requested.' >&2; exit 1; fi
 echo 'Read-only recovery verification finished. Inspect partial statuses and protection policies; counts are not additive. No cleanup or deployment requested.'
