@@ -6,6 +6,13 @@ umask 077
 (( 10#$SSH_PORT >= 1 && 10#$SSH_PORT <= 65535 )) || exit 1
 [[ "$SSH_USER" =~ ^[a-zA-Z0-9_]+$ && "$SSH_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo 'Invalid SSH settings.' >&2; exit 1; }
 [[ -n "$SSH_PRIVATE_KEY" ]] || { echo 'Missing SSH key.' >&2; exit 1; }
+# Validate before building the sole fixed remote command; shell metacharacters forbidden.
+selection=${RECOVERY_CANDIDATES:-}
+[[ -z "$selection" || "$selection" =~ ^backend-[0-9]{8}-[0-9]{6}(,backend-[0-9]{8}-[0-9]{6}){0,2}$ ]] || { echo 'Invalid recovery candidate selection.' >&2; exit 1; }
+remote_command='source "$HOME/nodevenv/waterfall-backend/22/bin/activate" >/dev/null 2>&1 && node --input-type=module - --verify 2>&1'
+if [[ -n "$selection" ]]; then
+  remote_command='source "$HOME/nodevenv/waterfall-backend/22/bin/activate" >/dev/null 2>&1 && node --input-type=module - --verify '"$selection"' 2>&1'
+fi
 # Temporary authentication files exist only on the disposable Actions runner.
 inventory_dir=$(mktemp -d "$RUNNER_TEMP/verify-backend-recovery.XXXXXX")
 agent_started=false
@@ -32,7 +39,7 @@ set +e
 ssh -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
   -o UserKnownHostsFile="$inventory_dir/known_hosts" -o ConnectTimeout=20 \
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3 "$SSH_USER@$SSH_HOST" \
-  'source "$HOME/nodevenv/waterfall-backend/22/bin/activate" >/dev/null 2>&1 && node --input-type=module - --verify 2>&1' \
+  "$remote_command" \
   < scripts/deploy/verify-backend-recovery.mjs 2> "$inventory_dir/ssh-errors" \
   | node scripts/deploy/verify-backend-recovery.mjs --filter
 statuses=("${PIPESTATUS[@]}")

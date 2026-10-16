@@ -108,3 +108,62 @@ cannot be declared unreferenced by skipping other releases/backups. This patch
 adds phase observability without changing scan scope or raising budgets; no
 new workflow inputs or arbitrary remote commands are accepted. Obtain approval
 before publishing or running the instrumented verifier.
+
+## Proposed optimization after run #2
+
+The operator confirmed time_limit in backup_metadata, a legacy_directory active
+runtime, and no active/release references in completed checks. This does not
+establish complete reference coverage or usable database recovery.
+
+The workflow now accepts an optional `candidates` string with one to three
+comma-separated exact legacy backup names, for example:
+`backend-20261015-090000,backend-20261014-204213`.
+Blank preserves full candidate counting. Both the shell and Node validate names;
+no paths, shell operators, arbitrary commands or broader patterns are accepted.
+Selection limits detailed dependency counts, NOT external-reference coverage.
+The app, retained releases and backup container are still traversed. References
+from unselected trees are collected; timeout, unreadable paths, unresolved links
+or unknown entries keep coverage incomplete, fail the job and protect candidates.
+
+Completed dependency scans contribute both link and database-artifact metadata.
+The later backup traversal reuses those records only for matching canonical,
+real directory roots with matching device/inode and root mtime/ctime fingerprints.
+Changed roots fail closed and are rescanned within the original budget. Incomplete
+scans are never reused. This avoids a second full dependency-tree traversal for
+counted candidates. It is a snapshot, not an atomic filesystem view: unchanged
+root metadata cannot prove no nested file changed concurrently. No cleanup is
+authorized by cached records; immediate pre-cleanup verification remains mandatory.
+Metadata from unselected backups is still scanned once. Scanning an entire hosting
+account or all external/provider references is outside this helper's scope.
+
+Internal dependency links now require BOTH source and resolved destination to
+lie within the exact same candidate subtree. They are reported separately and
+no longer imply an external backupReference. Active and release references,
+links from another backup or the candidate's parent, and links to a candidate's
+ancestor remain external protections. Unknown target/coverage protects every
+selected row. cleanupApproved stays false and reclaimableInodes stays null even
+when only internal links are found.
+
+Database artifact reports contain only extension type (`sql`, `sql.gz`, `dump`,
+`backup`), approximate whole-day age from mtime (null for future/unusable times),
+and fixed metadata_only_unverified status. At most 50 distinct artifact inodes
+are reported; no names, paths, contents, credentials or database identities.
+Known Prisma migration.sql paths are excluded. Other package SQL or unrelated
+files can still be false positives. Provider/off-host backups, restore integrity
+and freshness against the required RPO still require owner confirmation.
+
+Check first the failed backup dependency tree
+`backend-20261015-090000/node_modules` (previously 5,147 inodes), together with
+`backend-20261014-204213/node_modules` (previously approximately 45,436). These are
+verification candidates only, not deletion priorities based on age. Preserve
+`backend-20261014-231344` as a potential recovery-source candidate pending actual
+verification; its date alone establishes no completeness. A subsequent approved
+batch can inspect `backend-20261004-131949/node_modules` and
+`backend-20260922-153102/node_modules` if reference and recovery evidence supports
+further review. None is confirmed disposable or independently reclaimable.
+
+The 240-second / one-million-entry budgets remain unchanged. Targeted mode does
+not guarantee completion: unselected external-reference trees still consume I/O.
+Review phase diagnostics before proposing any further narrowing; never treat
+skipped external scopes as evidence that a candidate is unused. No scan, database
+change, deployment, restart, deletion, commit or push accompanies this local patch.

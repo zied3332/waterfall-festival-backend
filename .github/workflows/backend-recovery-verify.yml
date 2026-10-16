@@ -2,6 +2,12 @@ name: Verify Backend Recovery
 
 on:
   workflow_dispatch:
+    inputs:
+      candidates:
+        description: 'Optional 1?3 comma-separated backend-YYYYMMDD-HHMMSS names; blank scans all'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -31,6 +37,7 @@ jobs:
           node --test tests/backend-recovery.test.mjs
       - name: Read-only backend recovery verification through existing SSH
         env:
+          RECOVERY_CANDIDATES: ${{ inputs.candidates }}
           SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_KEY }}
           SSH_PASSPHRASE: ${{ secrets.CPANEL_SSH_PASSPHRASE }}
           SSH_HOST: ${{ secrets.CPANEL_HOST }}

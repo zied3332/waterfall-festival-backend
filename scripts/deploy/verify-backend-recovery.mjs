@@ -11,6 +11,8 @@ const overlap = (a, b) => within(a, b) || within(b, a);
 
 // Metadata only. No file bodies, environment files, journals or database data.
 export async function verifyRecovery(home, emit, options = {}) {
+  const selected = options.candidates ?? [];
+  if (!Array.isArray(selected) || selected.length > 3 || selected.some(n => typeof n !== 'string' || !backupName.test(n)) || new Set(selected).size !== selected.length) throw Error('invalid_candidates');
   const root = await realpath(home);
   if (root !== resolve(home) || dirname(root) === root) throw Error('unsafe_home');
   const started = Date.now();
@@ -50,8 +52,24 @@ export async function verifyRecovery(home, emit, options = {}) {
     }
   }
   const references = [];
+  const completedTrees = new Map();
+  let reusedTrees = 0;
+  const artifacts = [];
+  const artifactIdentities = new Set();
+  function observeArtifact(p, s) {
+    if (!s.isFile() || /[\\/]prisma[\\/]migrations[\\/].+[\\/]migration\.sql$/i.test(p)) return;
+    const match = /\.(sql\.gz|sql|dump|backup)$/i.exec(p);
+    if (!match) return;
+    databaseArtifactFound = true;
+    const identity = `${s.dev}:${s.ino}`;
+    if (artifactIdentities.has(identity) || artifacts.length >= 50) return;
+    artifactIdentities.add(identity);
+    const age = Math.floor((started - Number(s.mtimeMs)) / 86400000);
+    artifacts.push({type:match[1].toLowerCase(), approximateAgeDays:age >= 0 && Number.isSafeInteger(age) ? age : null, verification:'metadata_only_unverified'});
+  }
+  const fingerprint = s => `${s.dev}:${s.ino}:${s.mtimeNs}:${s.ctimeNs}`;
   let referenceOrigin = 'active';
-  async function walk(start, visit) {
+  async function walk(start, visit, reuse = false) {
     const stack = [start];
     let done = true, device;
     while (stack.length) {
@@ -65,10 +83,14 @@ export async function verifyRecovery(home, emit, options = {}) {
         device ??= s.dev;
         if (s.dev !== device) { fail('mount_boundary'); done = false; continue; }
         await visit(p, s);
+        if (reuse && completedTrees.has(p)) {
+          if (s.isDirectory() && await canonical(p) === resolve(p) && completedTrees.get(p) === fingerprint(s)) { reusedTrees++; continue; }
+          fail('cached_tree_changed'); done = false;
+        }
         if (s.isSymbolicLink()) {
           const target = await canonical(p);
           if (!target) { fail('unresolved_symlink'); done = false; }
-          else if (within(target, backups)) references.push({ target, origin: referenceOrigin, internal: within(p, backups) && within(target, start) });
+          else if (within(target, backups)) references.push({ target, source: p, origin: referenceOrigin });
         } else if (s.isDirectory()) {
           if (await canonical(p) !== resolve(p)) { fail('path_boundary'); done = false; continue; }
           for await (const item of await opendir(p)) {
@@ -123,7 +145,8 @@ export async function verifyRecovery(home, emit, options = {}) {
     } catch { return false; }
   }
   referenceOrigin = 'candidate';
-  for (const name of names) {
+  if (selected.some(n => !names.includes(n))) { fail('selected_candidate_missing'); complete = false; }
+  for (const name of (selected.length ? selected.filter(n => names.includes(n)) : names)) {
     begin('candidate_dependencies');
     const base = join(backups, name), target = join(base, 'node_modules');
     const row = { schema, kind: 'backup', target: `${name}/node_modules`, restoreTested: false, databaseRecoveryVerified: false, cleanupApproved: false, reclaimableInodes: null };
@@ -135,7 +158,10 @@ export async function verifyRecovery(home, emit, options = {}) {
         const info = await lstat(target);
         if (info.isSymbolicLink()) dependencyType = 'symlink_target';
         else if (info.isDirectory()) {
+          let rootFingerprint;
           scanned = await walk(target, (p, s) => {
+            if (p === target) rootFingerprint = fingerprint(s);
+            observeArtifact(p, s);
             const identity = `${s.dev}:${s.ino}`;
             if (seen.has(identity)) return;
             seen.add(identity);
@@ -145,6 +171,7 @@ export async function verifyRecovery(home, emit, options = {}) {
             if (s.isSymbolicLink()) symlinks++;
             allocatedBytes += Number(s.blocks ?? 0n) * 512;
           });
+          if (scanned && rootFingerprint) completedTrees.set(target, rootFingerprint);
           dependencyType = hardLinkedFiles ? 'contains_hardlinks' : 'directory_copy';
         }
       } catch (error) { fail(safeCodes.includes(error.code) ? error.code : 'unknown_filesystem_error'); complete = false; }
@@ -158,17 +185,19 @@ export async function verifyRecovery(home, emit, options = {}) {
   begin('backup_metadata');
   referenceOrigin = 'backup';
   const databaseScanComplete = await walk(backups, (p, s) => {
-    if (s.isFile() && /\.(?:sql(?:\.gz)?|dump|backup)$/i.test(p)) databaseArtifactFound = true;
-  });
+    observeArtifact(p, s);
+  }, true);
   begin('finished');
-  emit({ schema, kind: 'summary', phases, visitedEntries: visited, elapsedMilliseconds: Date.now() - started, databaseScanComplete, runtimeLayout, currentRelease, activeRuntimeIdentified, activeBackupReference, scanComplete: complete, databaseArtifactFound, databaseRecoveryVerified: false, restoreTested: false, cleanupApproved: false, journalsChecked: false, processReferencesChecked: false, externalDatabaseBackupsChecked: false, safestCandidate: 'not_established' });
+  emit({ schema, kind: 'summary', phases, artifacts, reusedTrees, targetedMode: selected.length > 0, visitedEntries: visited, elapsedMilliseconds: Date.now() - started, databaseScanComplete, runtimeLayout, currentRelease, activeRuntimeIdentified, activeBackupReference, scanComplete: complete, databaseArtifactFound, databaseRecoveryVerified: false, restoreTested: false, cleanupApproved: false, journalsChecked: false, processReferencesChecked: false, externalDatabaseBackupsChecked: false, safestCandidate: 'not_established' });
   for (const row of rows) {
-    row.backupReference = references.some(p => overlap(p.target, row._target));
+    row.internalDependencyReference = references.some(p => p.source && within(p.source, row._target) && within(p.target, row._target));
+    const external = references.filter(p => !p.source || !within(p.source, row._target) || !within(p.target, row._target));
+    row.backupReference = external.some(p => overlap(p.target, row._target));
     row.activeReference = references.some(p => p.origin === 'active' && overlap(p.target, row._target));
     row.releaseReference = references.some(p => p.origin === 'release' && overlap(p.target, row._target));
-    row.internalDependencyReference = references.some(p => p.internal && overlap(p.target, row._target));
-    row.otherBackupReference = references.some(p => ['candidate','backup'].includes(p.origin) && !p.internal && overlap(p.target, row._target));
-    row.protected ||= row.backupReference;
+    row.otherBackupReference = external.some(p => ['candidate','backup'].includes(p.origin) && overlap(p.target, row._target));
+    row.referenceUncertain = !complete;
+    row.protected ||= row.backupReference || !complete || !row.scanComplete || row.dependencyType === 'symlink_target';
     row.referenceScanComplete = complete;
     delete row._target;
     emit(row);
@@ -182,10 +211,11 @@ export function sanitizeRecovery(line) {
   if (!d || d.schema !== schema || !['backup', 'summary'].includes(d.kind)) return null;
   const out = { schema, kind: d.kind };
   if (/^backend-\d{8}-\d{6}\/node_modules$/.test(d.target)) out.target = d.target;
-  for (const k of ['activeRuntimeIdentified','activeBackupReference','scanComplete','databaseArtifactFound','protected','backupReference','referenceScanComplete','databaseScanComplete','activeReference','releaseReference','internalDependencyReference','otherBackupReference']) if (typeof d[k] === 'boolean' || (k === 'activeBackupReference' && d[k] === null)) out[k] = d[k];
+  for (const k of ['activeRuntimeIdentified','activeBackupReference','scanComplete','databaseArtifactFound','protected','backupReference','referenceScanComplete','databaseScanComplete','activeReference','releaseReference','internalDependencyReference','otherBackupReference','referenceUncertain','targetedMode']) if (typeof d[k] === 'boolean' || (k === 'activeBackupReference' && d[k] === null)) out[k] = d[k];
   for (const k of ['restoreTested','databaseRecoveryVerified','cleanupApproved','journalsChecked','processReferencesChecked','externalDatabaseBackupsChecked']) if (d[k] === false) out[k] = false;
-  for (const k of ['uniqueInodes','singleLinkFiles','hardLinkedFiles','symlinks','allocatedBytes','visitedEntries','elapsedMilliseconds']) if (Number.isSafeInteger(d[k]) && d[k] >= 0) out[k] = d[k];
-  if (Array.isArray(d.phases)) out.phases = d.phases.slice(0,210).filter(p => p && ['discovery','active_references','release_references','candidate_dependencies','backup_metadata'].includes(p.phase)).map(p => ({phase:p.phase, elapsedMilliseconds:Number.isSafeInteger(p.elapsedMilliseconds) && p.elapsedMilliseconds >= 0 ? p.elapsedMilliseconds : null, visitedEntries:Number.isSafeInteger(p.visitedEntries) && p.visitedEntries >= 0 ? p.visitedEntries : null, reasons:Array.isArray(p.reasons) ? p.reasons.filter(r => ['ENOENT','EACCES','EPERM','ENOSPC','EDQUOT','EIO','ELOOP','ENOTDIR','EMFILE','ENFILE','time_limit','entry_limit','pending_entry_limit','path_boundary','mount_boundary','unresolved_symlink','container_limit','unrecognized_entry','unsafe_container','unknown_filesystem_error'].includes(r)).slice(0,30) : []}));
+  for (const k of ['uniqueInodes','singleLinkFiles','hardLinkedFiles','symlinks','allocatedBytes','visitedEntries','elapsedMilliseconds','reusedTrees']) if (Number.isSafeInteger(d[k]) && d[k] >= 0) out[k] = d[k];
+  if (Array.isArray(d.phases)) out.phases = d.phases.slice(0,210).filter(p => p && ['discovery','active_references','release_references','candidate_dependencies','backup_metadata'].includes(p.phase)).map(p => ({phase:p.phase, elapsedMilliseconds:Number.isSafeInteger(p.elapsedMilliseconds) && p.elapsedMilliseconds >= 0 ? p.elapsedMilliseconds : null, visitedEntries:Number.isSafeInteger(p.visitedEntries) && p.visitedEntries >= 0 ? p.visitedEntries : null, reasons:Array.isArray(p.reasons) ? p.reasons.filter(r => ['ENOENT','EACCES','EPERM','ENOSPC','EDQUOT','EIO','ELOOP','ENOTDIR','EMFILE','ENFILE','time_limit','entry_limit','pending_entry_limit','path_boundary','mount_boundary','unresolved_symlink','container_limit','unrecognized_entry','unsafe_container','unknown_filesystem_error','cached_tree_changed','selected_candidate_missing'].includes(r)).slice(0,30) : []}));
+  if (Array.isArray(d.artifacts)) out.artifacts = d.artifacts.slice(0,50).filter(a => a && ['sql','sql.gz','dump','backup'].includes(a.type)).map(a => ({type:a.type, approximateAgeDays:Number.isSafeInteger(a.approximateAgeDays) && a.approximateAgeDays >= 0 ? a.approximateAgeDays : null, verification:'metadata_only_unverified'}));
   if (d.fatalReason === 'verification_unavailable') out.fatalReason = d.fatalReason;
   if (d.reclaimableInodes === null) out.reclaimableInodes = null;
   if (['appears_suitable','unverified'].includes(d.structure)) out.structure = d.structure;
@@ -197,9 +227,9 @@ export function sanitizeRecovery(line) {
 }
 
 async function main() {
-  if (process.argv.length !== 3) throw Error('invalid_mode');
+  if (process.argv.length !== 3 && !(process.argv.length === 4 && process.argv[2] === '--verify')) throw Error('invalid_mode');
   if (process.argv[2] === '--verify') {
-    if (!await verifyRecovery(process.env.HOME, row => console.log(JSON.stringify(row)))) process.exitCode = 1;
+    if (!await verifyRecovery(process.env.HOME, row => console.log(JSON.stringify(row)), {candidates:process.argv[3] ? process.argv[3].split(',') : []})) process.exitCode = 1;
   } else if (process.argv[2] === '--filter') {
     let summary = false;
     for await (const line of createInterface({ input: process.stdin, crlfDelay: Infinity })) {
